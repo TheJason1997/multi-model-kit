@@ -102,6 +102,7 @@ Codex 接手有四个条件：当前目录是 git 仓库、有 `.handoff.md`、�
 
 | 问题 | 结论 |
 |---|---|
+| 怎么用第二个 org？ | 在 T3 设置里再加一个 Claude 实例，环境变量 `CLAUDE_CONFIG_DIR` 指向那个 org 的配置目录，模型选择器里马上就能选到。派给它的任务确实跑在第二个 org 下；线程在两个实例之间切换后对话能否续上，还没验证。 |
 | 能看到额度百分比吗？ | 能，在 **Usage → Limits** 里，或输入 `/usage-limits`。但没有工具能把读数交给模型，所以 80% 和 95% 的自动处理只在终端的 `claude-org` 下生效。 |
 | 所有 Claude org 都受限时，Codex 会自己接手吗？ | 不会，T3 没有这样的触发器。手动把线程切到 GPT；同一份规则已经装给 Codex，它可以当主控。 |
 | 本机能给运行中的云端会话发消息吗？ | 能：`claude -p "消息" --cloud "<会话 id 或链接>"`。依据是官方文档和命令行帮助，这里没有真的发过。 |
@@ -114,7 +115,7 @@ Codex 接手有四个条件：当前目录是 git 仓库、有 `.handoff.md`、�
 sh tests/install.test.sh                    # 87 项
 sh tests/claude-org.test.sh                 # 40 项
 claude plugin validate mods/org-switch
-claude plugin test mods/org-switch          # 33 项
+claude plugin test mods/org-switch          # 37 项
 ```
 
 下面这些还没有真实跑过：

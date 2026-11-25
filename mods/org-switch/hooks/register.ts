@@ -232,6 +232,8 @@ function startSwitch($: Engine, target: string, compact: boolean, reason: string
   return `org-switch: ${compact ? 'compacting, then ' : ''}exiting so this session resumes under ${target}.`
 }
 
+const EXIT_GRACE_MS = 5000
+
 async function runSwitch($: Engine, target: string, compact: boolean, reason: string, attempt: number, extra: string): Promise<void> {
   if (compact) {
     try {
@@ -252,6 +254,9 @@ async function runSwitch($: Engine, target: string, compact: boolean, reason: st
   const line = env.resumed || conversed ? `session=${sid}` : 'fresh=1'
   await $.fs.write(env.handoff as string, `next=${target}\n${line}\n${extra}reason=${reason.replace(/[\r\n]+/g, ' ')}\n`)
   $.ui.toast(`org-switch: exiting; resuming ${sid.slice(0, 8)} under ${target}.`, { timeoutMs: 8000 })
+  // The engine's own rate-limit dialog can hold /exit until a person answers it. Nobody may be there:
+  // if this process is still alive after the grace, end it. The launcher resumes the session either way.
+  $.clock.after(EXIT_GRACE_MS, () => { void $.process.run(['sh', '-c', 'kill -TERM "$PPID"']) })
   try {
     await $.command.run({ command: 'exit' })
   } catch (err) {
@@ -277,7 +282,8 @@ async function moveTo($: Engine, org: string, model: string | undefined, go: boo
   }
   await $.store.set('lastSwitchAt', await $.clock.now())
   // The other org's process starts on its own default model: carry this one over.
-  await $.store.set(`resume:${await $.session.id()}`, { go, model: model ?? was } satisfies Resume)
+  // A session nobody has written to starts fresh under the other org: there is nothing to resume, so nothing to record.
+  if (env.resumed || conversed) await $.store.set(`resume:${await $.session.id()}`, { go, model: model ?? was } satisfies Resume)
   startSwitch($, org, shouldCompact(), reason)
 }
 
@@ -405,6 +411,14 @@ export const register: Register = on => {
     if (env.org !== undefined) saving = (await $.store.get(`saving:${env.org}`)) != null
     await $.command.register({ name: 'org', description: 'Org rate-limit windows; /org switch [org] moves this session to another org', argumentHint: '[status | switch [org]]' })
     if (!active()) return started
+    // A reading can arrive before the launcher's environment is known here, and a full window
+    // never moves again: take what the status line has now, so this org's state is on record.
+    const usage = await $.session.usage()
+    if (usage.rateLimits.length > 0) {
+      lastLimits = usage.rateLimits
+      await writeLedger($, env.org as string, lastLimits)
+      await updateSaving($, env.org as string, lastLimits)
+    }
     $.ui.status(statusText(env.org as string, lastLimits))
     // Resumed by a switch: restore the model it chose and continue the turn that
     // failed; after a Codex takeover, say what Codex left instead of "继续".
@@ -475,6 +489,14 @@ export const register: Register = on => {
       const b = (await readState($, cur)).block
       if (b !== undefined && (b.kind === 'all' || isFable(await $.session.model()))) await $.store.delete(`block:${cur}`)
       await restoreFable($)
+    }
+    // A plugin that runs above this one can pass classic.StopFailure on without it ever reaching the
+    // hook above. A turn the API ended while a window is at the limit is that same failure, seen here.
+    if (e.reason === 'error' && e.agentId === undefined && active()) {
+      const hit = lastLimits.find(w => w.percentUsed >= THRESHOLD)
+      if (hit !== undefined) {
+        $.clock.after(0, () => { void onLimited($, 'limit', `${short(hit.kind)} window at ${hit.percentUsed}%`) })
+      }
     }
     return r
   })

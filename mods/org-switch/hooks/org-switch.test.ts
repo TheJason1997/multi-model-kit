@@ -78,7 +78,7 @@ type World = {
   status: string
 }
 
-function world(on: On, opts: { model?: string; run?: (argv: readonly string[]) => Run } = {}): World {
+function world(on: On, opts: { model?: string; run?: (argv: readonly string[]) => Run; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] } = {}): World {
   const w: World = { writes: [], commands: [], toasts: [], prompts: [], model: opts.model ?? 'claude-opus-5-5', runs: [], efforts: [], files: new Set(), status: '' }
   on('session.model', () => ({ value: w.model }))
   on('prompt.submit', (_$, e) => {
@@ -90,7 +90,7 @@ function world(on: On, opts: { model?: string; run?: (argv: readonly string[]) =
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.id', () => ({ value: SID }))
-  on('session.usage', () => ({ value: { startedAt: T0, context: { window: 200_000 }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: T0, context: { window: 200_000 }, rateLimits: opts.limits ?? [] } }))
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('command.run', (_$, e) => {
     w.commands.push(e.command === 'model' ? `model ${e.args}` : e.command)
@@ -282,6 +282,54 @@ test('95% in the cooldown, then a real limit before it ends: the switch it was w
   expect(store[`resume:${SID}`]).toEqual({ go: true, model: 'claude-opus-5-5' })
 })
 
+test('a plugin above swallowed the limit failure: a turn ended by an error at 100% still continues on the other org', async ($, on) => {
+  mock.env(on, launcherEnv)
+  const store = memStore(on, { lastSwitchAt: T0 - 30_000 })
+  const clock = mock.clock(on, { now: T0 })
+  const w = world(on)
+  await start($)
+  await measure($, 100)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'error' })
+  await clock.advance(90_000 + 5_000)
+  expect(w.writes).toEqual([{ path: HANDOFF, text: `next=b\nsession=${SID}\nreason=a: 5h window at 100%\n` }])
+  expect(store[`resume:${SID}`]).toEqual({ go: true, model: 'claude-opus-5-5' })
+})
+
+test('a turn ended by an error with the windows fine: nothing moves', async ($, on) => {
+  mock.env(on, launcherEnv)
+  memStore(on, {})
+  const clock = mock.clock(on, { now: T0 })
+  const w = world(on)
+  await start($)
+  await measure($, 40)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'error' })
+  await clock.advance(200_000)
+  expect(w.writes).toEqual([])
+})
+
+test('the exit is held (the engine\'s limit dialog): after the grace the process is ended so the launcher can resume', async ($, on) => {
+  mock.env(on, launcherEnv)
+  memStore(on, {})
+  const clock = mock.clock(on, { now: T0 })
+  const w = world(on)
+  await start($)
+  await measure($, 95)
+  await clock.advance(1)
+  expect(w.commands).toEqual(['exit'])
+  expect(w.runs).toEqual([])
+  await clock.advance(5_000)
+  expect(w.runs).toEqual([['sh', '-c', 'kill -TERM "$PPID"']])
+})
+
+test('a full window read before the launcher environment was known is on record once the session starts', async ($, on) => {
+  mock.env(on, launcherEnv)
+  const store = memStore(on, {})
+  mock.clock(on, { now: T0 })
+  world(on, { limits: [{ kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * HOUR) }] })
+  await start($)
+  expect(store['ledger:a']).toEqual({ seenAt: T0, windows: { seven_day: { percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * HOUR) } } })
+})
+
 test('resumed by a switch: restores the model and continues', async ($, on) => {
   mock.env(on, { ...launcherEnv, CLAUDE_ORG: 'b' })
   mock.store(on, { [`resume:${SID}`]: { go: true, model: 'claude-opus-5-5' } })
@@ -295,13 +343,14 @@ test('resumed by a switch: restores the model and continues', async ($, on) => {
 
 test('a new session nothing was said in switches to a fresh session', async ($, on) => {
   mock.env(on, { ...launcherEnv, CLAUDE_ORG_RESUMED: '' })
-  mock.store(on)
+  const store = memStore(on, {})
   const clock = mock.clock(on, { now: T0 })
   const w = world(on)
   await start($)
   await measure($, 100)
   await clock.advance(1)
   expect(w.writes[0]?.text).toBe('next=b\nfresh=1\nreason=a: 5h window at 100%\n')
+  expect(Object.keys(store).filter(k => k.startsWith('resume:'))).toEqual([])
 })
 
 test('/org shows this org and the last reading of the others', async ($, on) => {

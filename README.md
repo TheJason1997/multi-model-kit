@@ -104,6 +104,7 @@ Codex takes over only when the directory is a git repository with a `.handoff.md
 
 | Question | Answer |
 |---|---|
+| How do I use the second org? | Add a second Claude provider instance in T3's settings with the environment variable `CLAUDE_CONFIG_DIR` set to that org's config directory. It appears in the model picker at once. A task sent to it ran under the second org; whether a thread keeps its conversation when moved between the two instances is not verified yet. |
 | Can I see quota percentages? | Yes, in **Usage → Limits** or with `/usage-limits`. No tool returns them to an agent, so the 80% and 95% automation exists only under `claude-org` in a terminal. |
 | Does Codex take over by itself when every Claude org is limited? | No. T3 has no trigger for that. Switch the thread to GPT by hand; the same rules are installed for Codex, so it can act as orchestrator. |
 | Can my machine message a running cloud session? | Yes: `claude -p "message" --cloud "<session id or URL>"`. This comes from the documentation and the CLI help. It has not been sent for real here. |
@@ -116,7 +117,7 @@ Automated checks pass:
 sh tests/install.test.sh                    # 87 checks
 sh tests/claude-org.test.sh                 # 40 checks
 claude plugin validate mods/org-switch
-claude plugin test mods/org-switch          # 33 tests
+claude plugin test mods/org-switch          # 37 tests
 ```
 
 These have not been run for real yet:
