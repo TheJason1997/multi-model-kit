@@ -1,0 +1,164 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "把任务交给云端，再拿回来",
+    "output": "docs/architecture/handoff.zh.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "zh-CN",
+    "legend": {
+      "mode": "hidden"
+    },
+    "parentHref": "overview.zh.html"
+  },
+  "lanes": [
+    {
+      "id": "local",
+      "label": "你的电脑"
+    },
+    {
+      "id": "git",
+      "label": "任务分支"
+    },
+    {
+      "id": "cloud",
+      "label": "云端会话（或手机）"
+    }
+  ],
+  "mainPath": [
+    "unit",
+    "board",
+    "takeover",
+    "work",
+    "signal",
+    "stop",
+    "resume"
+  ],
+  "nodes": [
+    {
+      "id": "unit",
+      "lane": "local",
+      "col": 0,
+      "type": "frontend",
+      "label": "做完一个单元",
+      "sublabel": "主控提交"
+    },
+    {
+      "id": "board",
+      "lane": "git",
+      "col": 0,
+      "type": "database",
+      "label": ".handoff.md",
+      "sublabel": "看板加九条交接说明"
+    },
+    {
+      "id": "takeover",
+      "lane": "cloud",
+      "col": 1,
+      "type": "cloud",
+      "label": "接手",
+      "sublabel": "记下起点提交"
+    },
+    {
+      "id": "work",
+      "lane": "cloud",
+      "col": 2,
+      "type": "backend",
+      "label": "继续做",
+      "sublabel": "每个单元推一次"
+    },
+    {
+      "id": "signal",
+      "lane": "git",
+      "col": 3,
+      "type": "messagebus",
+      "label": "回本机信号",
+      "sublabel": "<分支>-handback"
+    },
+    {
+      "id": "stop",
+      "lane": "cloud",
+      "col": 4,
+      "type": "security",
+      "label": "停机记录",
+      "sublabel": "带同一个起点提交"
+    },
+    {
+      "id": "resume",
+      "lane": "local",
+      "col": 5,
+      "type": "frontend",
+      "label": "回本机继续",
+      "sublabel": "补审云端做的"
+    }
+  ],
+  "edges": [
+    {
+      "id": "push-unit",
+      "from": "unit",
+      "to": "board",
+      "label": "同一个提交",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pull",
+      "from": "board",
+      "to": "takeover",
+      "label": "读",
+      "variant": "emphasis"
+    },
+    {
+      "id": "continue",
+      "from": "takeover",
+      "to": "work"
+    },
+    {
+      "id": "see-signal",
+      "from": "work",
+      "to": "signal",
+      "label": "检查",
+      "variant": "dashed"
+    },
+    {
+      "id": "obey",
+      "from": "signal",
+      "to": "stop",
+      "label": "停",
+      "variant": "security"
+    },
+    {
+      "id": "back",
+      "from": "stop",
+      "to": "resume",
+      "label": "拉取",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "状态都在 git 里",
+      "items": [
+        "代码和 .handoff.md 放进同一个提交",
+        "任何会话只凭分支就能接着做"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "叫它回来",
+      "items": [
+        "在哪都能推信号分支",
+        "云端做完当前单元就停"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "不会悄悄撞车",
+      "items": [
+        "对上停机记录本机才继续",
+        "30 分钟没信号就问人"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "multi-model-kit: one orchestrator, three vendors",
+    "output": "docs/architecture/overview.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "en",
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "layout": {
+    "mode": "auto"
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "You",
+      "sublabel": "one request"
+    },
+    {
+      "id": "rules",
+      "type": "database",
+      "label": "Rules + skills",
+      "sublabel": "CLAUDE.md, AGENTS.md, GEMINI.md",
+      "tag": "install.sh"
+    },
+    {
+      "id": "orchestrator",
+      "type": "frontend",
+      "label": "Orchestrator",
+      "sublabel": "Claude: routes, verifies, commits"
+    },
+    {
+      "id": "claude",
+      "type": "backend",
+      "label": "Claude Opus",
+      "sublabel": "UI, architecture, codebase"
+    },
+    {
+      "id": "gpt",
+      "type": "backend",
+      "label": "GPT",
+      "sublabel": "backend, hard bugs, research"
+    },
+    {
+      "id": "gemini",
+      "type": "backend",
+      "label": "Gemini",
+      "sublabel": "docs, copy, ideas"
+    },
+    {
+      "id": "review",
+      "type": "security",
+      "label": "Cross-vendor review",
+      "sublabel": "never the author's vendor",
+      "tag": "max 2 rounds",
+      "href": "dispatch.html"
+    },
+    {
+      "id": "board",
+      "type": "database",
+      "label": ".handoff.md",
+      "sublabel": "board + handoff notes",
+      "href": "handoff.html"
+    },
+    {
+      "id": "launcher",
+      "type": "cloud",
+      "label": "claude-org",
+      "sublabel": "switches org at 95% quota",
+      "href": "quota.html"
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "Codex takeover",
+      "sublabel": "when every org is limited",
+      "href": "quota.html"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Executors, each in its own git worktree",
+      "wraps": [
+        "claude",
+        "gpt",
+        "gemini"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "ask",
+      "from": "user",
+      "to": "orchestrator",
+      "label": "request",
+      "variant": "emphasis"
+    },
+    {
+      "id": "load-rules",
+      "from": "rules",
+      "to": "orchestrator",
+      "label": "global rules",
+      "variant": "dashed"
+    },
+    {
+      "id": "brief-claude",
+      "from": "orchestrator",
+      "to": "claude",
+      "label": "brief",
+      "variant": "emphasis"
+    },
+    {
+      "id": "brief-gpt",
+      "from": "orchestrator",
+      "to": "gpt",
+      "label": "brief",
+      "variant": "emphasis"
+    },
+    {
+      "id": "brief-gemini",
+      "from": "orchestrator",
+      "to": "gemini",
+      "label": "brief",
+      "variant": "emphasis"
+    },
+    {
+      "id": "diff-claude",
+      "from": "claude",
+      "to": "review",
+      "label": "diff"
+    },
+    {
+      "id": "diff-gpt",
+      "from": "gpt",
+      "to": "review",
+      "label": "diff"
+    },
+    {
+      "id": "diff-gemini",
+      "from": "gemini",
+      "to": "review",
+      "label": "diff"
+    },
+    {
+      "id": "verdict",
+      "from": "review",
+      "to": "orchestrator",
+      "label": "blockers or pass",
+      "variant": "security"
+    },
+    {
+      "id": "record",
+      "from": "orchestrator",
+      "to": "board",
+      "label": "commit + update"
+    },
+    {
+      "id": "limit",
+      "from": "orchestrator",
+      "to": "launcher",
+      "label": "rate limit",
+      "variant": "dashed"
+    },
+    {
+      "id": "all-limited",
+      "from": "launcher",
+      "to": "codex",
+      "label": "all orgs limited",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Route by strength",
+      "items": [
+        "Start with the lightest path that works",
+        "Default tier first, escalate only when it fails"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Review across vendors",
+      "items": [
+        "GPT reviews Claude and Gemini work",
+        "Claude reviews GPT work",
+        "Two rounds, then the human decides"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Survive rate limits",
+      "items": [
+        "Second org resumes the same session",
+        "Codex continues when every org is limited",
+        ".handoff.md carries state across machines"
+      ]
+    }
+  ]
+}

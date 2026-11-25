@@ -1,0 +1,5 @@
+{
+  "name": "org-switch",
+  "version": "0.1.0",
+  "description": "Move this Claude Code session to another org (same session id) when a rate-limit window fills, under the claude-org launcher. /org shows status or switches by hand."
+}

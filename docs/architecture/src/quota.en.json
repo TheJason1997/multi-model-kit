@@ -1,0 +1,173 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "What happens when a rate limit gets close",
+    "output": "docs/architecture/quota.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "en",
+    "parentHref": "overview.html"
+  },
+  "mainPath": [
+    "working",
+    "saving",
+    "switch",
+    "resumed"
+  ],
+  "states": [
+    {
+      "id": "working",
+      "type": "start",
+      "label": "Working",
+      "sublabel": "window under 80%",
+      "step": "01"
+    },
+    {
+      "id": "saving",
+      "type": "active",
+      "label": "Saving quota",
+      "sublabel": "one effort level lower",
+      "tag": "80%",
+      "step": "02"
+    },
+    {
+      "id": "switch",
+      "type": "decision",
+      "label": "Pick an org",
+      "sublabel": "launcher exits Claude",
+      "tag": "95%",
+      "step": "03"
+    },
+    {
+      "id": "resumed",
+      "type": "success",
+      "label": "Resumed",
+      "sublabel": "same session, other org",
+      "step": "04"
+    },
+    {
+      "id": "waiting",
+      "type": "waiting",
+      "label": "Waiting",
+      "sublabel": "reset under 20 min away"
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "Codex takes over",
+      "sublabel": "edits files, no commit",
+      "tag": "foreground"
+    },
+    {
+      "id": "review",
+      "type": "active",
+      "label": "Review Codex edits",
+      "sublabel": "Claude commits or reverts"
+    },
+    {
+      "id": "opus",
+      "type": "neutral",
+      "label": "Opus for now",
+      "sublabel": "only Fable is limited"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "soft",
+      "from": "working",
+      "to": "saving",
+      "label": "80% used"
+    },
+    {
+      "id": "hard",
+      "from": "saving",
+      "to": "switch",
+      "label": "95% used"
+    },
+    {
+      "id": "other-free",
+      "from": "switch",
+      "to": "resumed",
+      "label": "other org free",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reset",
+      "from": "saving",
+      "to": "working",
+      "label": "window resets"
+    },
+    {
+      "id": "all-short",
+      "from": "switch",
+      "to": "waiting",
+      "label": "all limited",
+      "variant": "dashed"
+    },
+    {
+      "id": "freed",
+      "from": "waiting",
+      "to": "resumed",
+      "label": "an org frees"
+    },
+    {
+      "id": "all-long",
+      "from": "switch",
+      "to": "codex",
+      "label": "over 20 min",
+      "variant": "security"
+    },
+    {
+      "id": "codex-done",
+      "from": "codex",
+      "to": "review",
+      "label": "Codex exits"
+    },
+    {
+      "id": "reviewed",
+      "from": "review",
+      "to": "resumed",
+      "label": "committed"
+    },
+    {
+      "id": "fable-limit",
+      "from": "working",
+      "to": "opus",
+      "label": "Fable limit",
+      "variant": "dashed"
+    },
+    {
+      "id": "fable-back",
+      "from": "opus",
+      "to": "working",
+      "label": "hold ends"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two orgs, two logins",
+      "items": [
+        "Each org signs in to its own config directory",
+        "The launcher never reads a credential"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Same conversation",
+      "items": [
+        "The session id is handed over and resumed",
+        "Flags after -- are passed on untouched"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "One at a time",
+      "items": [
+        "Codex runs only while Claude is not running",
+        "Its edits stay uncommitted until Claude reviews them"
+      ]
+    }
+  ]
+}

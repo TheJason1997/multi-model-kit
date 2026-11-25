@@ -1,0 +1,4 @@
+orgs.json
+.DS_Store
+.archify/
+docs/architecture/*.delivery.json

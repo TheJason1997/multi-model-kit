@@ -1,0 +1,332 @@
+#!/bin/sh
+# claude-org — run Claude Code under one org, each org signed in with its own
+# /login in its own config directory, and when the org-switch mod asks, restart
+# under another org resuming the same session in this terminal.
+#
+#   claude-org [org] [claude args...]   start (no org: one with quota left)
+#   claude-org setup <org>              create that org's config directory
+#
+# Orgs come from orgs.json next to this script's folder: key, name, config
+# directory, cloud environment id. The org whose directory is ~/.claude runs
+# with CLAUDE_CONFIG_DIR unset, exactly like a plain `claude`; every other org
+# runs with CLAUDE_CONFIG_DIR pointing at its directory. This script never
+# reads or writes a credential: each directory holds its own login.
+#
+# The mod gets CLAUDE_ORG, CLAUDE_ORGS and CLAUDE_ORG_HANDOFF (a file path); to
+# switch it writes "next=<org>" and "session=<uuid>" there and exits, and this
+# loop relaunches `claude --resume <uuid>` under that org with the original
+# flags (minus -c / -r / --session-id; whatever follows a `--` is passed on as
+# it is). Two orgs may not share one physical directory: that would be one
+# login.
+#
+# When every org is out for a while, the mod also writes "codex=1" and
+# "until=<epoch seconds>": this loop then runs Codex in the foreground, in this
+# terminal and directory (files only, no commits), waits until that time, and
+# resumes the session with CLAUDE_ORG_CODEX_EXIT set to Codex's exit code, so
+# the mod tells it what Codex left. Ctrl-C stops Codex and goes on the same
+# way; Ctrl-C during the wait stops here and says how to resume. The old
+# acct-switch mod is turned off
+# for these processes only, through --settings; the shared settings file is
+# untouched and claude-acct keeps working.
+set -u
+
+here=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
+ORGS_FILE=$here/orgs.json
+MOD_DIR=$here/mods/org-switch
+DEFAULT_DIR=$HOME/.claude
+MAX_HANDOFFS=20
+THRESHOLD=95
+UUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+ACCT_SWITCH_OFF='{"enabledPlugins":{"acct-switch@local-mods":false}}'
+TAB=$(printf '\t')
+CODEX_MODEL=gpt-6.2-astra
+CODEX_PROMPT='读 .handoff.md，只做其中标为非界面的单元。只改文件：不要 git add、不要提交、不要推送。做完把做了什么追加写进仓库根目录的 .codex-takeover-notes.md。'
+
+die() { echo "claude-org: $*" >&2; exit 1; }
+
+# One line per org: key<TAB>config directory (~ expanded). Bad entries are skipped.
+orgs() {
+  python3 -I - "$ORGS_FILE" "$HOME" <<'PY'
+import json, os, re, sys
+path, home = sys.argv[1], sys.argv[2]
+for o in json.load(open(path)).get('orgs', []):
+    key, d = o.get('key', ''), o.get('configDir', '')
+    if not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', key) or not isinstance(d, str):
+        continue
+    if d == '~' or d.startswith('~/'):
+        d = home + d[1:]
+    if os.path.isabs(d) and '\t' not in d and '\n' not in d:
+        print(key + '\t' + os.path.normpath(d))
+PY
+}
+
+[ -f "$ORGS_FILE" ] || die "no $ORGS_FILE (copy orgs.example.json to orgs.json and fill it in)"
+ORGS=$(orgs) || die "cannot read $ORGS_FILE"
+
+dir_of() { printf '%s\n' "$ORGS" | awk -F "$TAB" -v k="$1" '$1 == k { print $2; exit }'; }
+# Orgs whose directory exists, comma-separated: the ones a session can start or switch to.
+ready() {
+  r=""
+  while IFS="$TAB" read -r k d; do
+    [ -n "$k" ] && [ -d "$d" ] && r="${r:+$r,}$k"
+  done <<EOT
+$ORGS
+EOT
+  printf '%s' "$r"
+}
+# Two orgs whose directories are one physical directory, as "a and b"; empty when
+# all differ. Compared by device and inode, not by name: a link, or other letter
+# case on a file system that ignores it, names the same directory differently.
+same_dir() {
+  printf '%s\n' "$ORGS" | python3 -I -c '
+import os, sys
+seen = {}
+for line in sys.stdin:
+    k, _, d = line.rstrip("\n").partition("\t")
+    try:
+        st = os.stat(d)
+    except OSError:
+        continue
+    if not os.path.isdir(d):
+        continue
+    if (st.st_dev, st.st_ino) in seen:
+        print(seen[(st.st_dev, st.st_ino)] + " and " + k)
+        break
+    seen[(st.st_dev, st.st_ino)] = k
+'
+}
+distinct() {
+  dup=$(same_dir) || die "cannot compare the org directories"
+  [ -z "$dup" ] || die "orgs $dup resolve to the same directory; each org needs a login directory of its own"
+}
+in_list() { case ",$2," in *",$1,"*) return 0 ;; esac; return 1; }
+
+# Names inside ~/.claude that belong to one login and so are not shared:
+# the account state file and its backups, the stored credential, org policy
+# and remote settings fetched for the signed-in org, auth caches, the daemon.
+is_account_state() {
+  case "$1" in
+    .claude.json|.claude.json.*|.credentials*|backups|policy-limits.json*|remote-settings*|mcp-needs-auth-cache.json|daemon|daemon.log|daemon-auth-*) return 0 ;;
+  esac
+  return 1
+}
+
+setup() {
+  [ $# -eq 1 ] || die "usage: claude-org setup <org>"
+  dir=$(dir_of "$1")
+  [ -n "$dir" ] || die "no org '$1' in $ORGS_FILE"
+  [ "$dir" != "$DEFAULT_DIR" ] || die "$1 uses $DEFAULT_DIR, which is already set up"
+  distinct
+  if [ -e "$dir" ] && python3 -I -c 'import os, sys; sys.exit(not os.path.samefile(sys.argv[1], sys.argv[2]))' "$dir" "$DEFAULT_DIR" 2>/dev/null; then
+    die "$dir is the same directory as $DEFAULT_DIR; each org needs a login directory of its own"
+  fi
+  [ -d "$DEFAULT_DIR" ] || die "no $DEFAULT_DIR to link to"
+  if [ -e "$dir" ] || [ -L "$dir" ]; then
+    [ -d "$dir" ] && [ -z "$(ls -A "$dir")" ] || die "$dir already exists and is not empty; not touching it"
+  fi
+  mkdir -p "$dir" || exit 1
+  for src in "$DEFAULT_DIR"/* "$DEFAULT_DIR"/.[!.]* "$DEFAULT_DIR"/..?*; do
+    [ -e "$src" ] || [ -L "$src" ] || continue
+    name=${src##*/}
+    is_account_state "$name" && continue
+    ln -s "$src" "$dir/$name" || exit 1
+  done
+  echo "claude-org: linked $dir to $DEFAULT_DIR (everything but the account state)"
+
+  # Global MCP servers live in the account state file and may embed keys: copy them only when asked.
+  global=$HOME/.claude.json
+  if [ -f "$global" ]; then
+    printf 'Copy the global MCP servers from %s into %s/.claude.json? Their settings may hold keys. [y/N] ' "$global" "$dir"
+    ans=""
+    read -r ans || ans=""
+    case "$ans" in
+      y|Y|yes|YES)
+        (umask 077 && python3 -I - "$global" "$dir/.claude.json" <<'PY'
+import json, os, sys
+src, dst = sys.argv[1], sys.argv[2]
+servers = json.load(open(src)).get('mcpServers') or {}
+cfg = json.load(open(dst)) if os.path.exists(dst) else {}
+cfg['mcpServers'] = {**(cfg.get('mcpServers') or {}), **servers}
+tmp = dst + '.tmp'
+with open(tmp, 'w') as f:
+    json.dump(cfg, f, indent=2)
+os.replace(tmp, dst)
+print('claude-org: copied %d MCP server(s)' % len(servers))
+PY
+        ) || die "could not copy the MCP servers"
+        ;;
+      *) echo "claude-org: MCP servers not copied" ;;
+    esac
+  fi
+  echo "Now sign in to this org once (\`command\` skips any claude alias):"
+  echo "  CLAUDE_CONFIG_DIR='$dir' command claude auth login"
+  echo "  CLAUDE_CONFIG_DIR='$dir' command claude auth status"
+}
+
+# With no org named: from the mod's records, an org with quota left, the most
+# recently used first; else the one that frees up first; else the first ready one.
+pick_org() {
+  python3 -I - "$DEFAULT_DIR/plugins/store" "$1" "$THRESHOLD" 2>/dev/null <<'PY'
+import glob, json, os, sys, time
+from datetime import datetime
+store, orgs, thr = sys.argv[1], sys.argv[2].split(','), float(sys.argv[3])
+# The newest store file that parses and holds a well-formed reading; any other is skipped.
+def mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0
+def good(l):
+    w = l.get('windows')
+    return isinstance(w, dict) and isinstance(l.get('seenAt', 0), (int, float)) and all(isinstance(x, dict) and isinstance(x.get('percentUsed', 0), (int, float)) for x in w.values())
+d = {}
+for p in sorted(glob.glob(os.path.join(store, 'org-switch_*.json')), key=mtime, reverse=True):
+    try:
+        c = json.load(open(p))
+    except (OSError, ValueError):
+        continue
+    ls = [v for k, v in c.items() if k.startswith('ledger:')] if isinstance(c, dict) else []
+    if ls and all(isinstance(v, dict) and good(v) for v in ls):
+        d = c
+        break
+now = time.time() * 1000
+def ts(s):
+    try:
+        return datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp() * 1000
+    except ValueError:
+        return None
+ranked = []
+for o in orgs:
+    l, at = d.get('ledger:' + o) or {}, now
+    for w in (l.get('windows') or {}).values():
+        t = ts(w.get('resetsAt'))
+        if w.get('percentUsed', 0) >= thr and t and t > at:
+            at = t
+    b = d.get('block:' + o)
+    if isinstance(b, dict) and b.get('kind') == 'all' and isinstance(b.get('until'), (int, float)) and b['until'] > at:
+        at = b['until']
+    ranked.append((at > now, at if at > now else 0, -l.get('seenAt', 0), orgs.index(o), o))
+print(sorted(ranked)[0][4])
+PY
+}
+
+# Options end at `--`: what follows is the person's own text.
+names_session() {
+  for a in "$@"; do
+    case "$a" in --) return 1 ;; -c|--continue|-r|--resume|--resume=*|--session-id|--session-id=*) return 0 ;; esac
+  done
+  return 1
+}
+
+if [ "${1:-}" = setup ]; then shift; setup "$@"; exit; fi
+
+distinct
+READY=$(ready)
+[ -n "$READY" ] || die "no org in $ORGS_FILE has its config directory yet"
+org=""
+if [ $# -gt 0 ] && [ -n "$(dir_of "$1")" ]; then
+  org=$1; shift
+  in_list "$org" "$READY" || die "$org has no config directory yet; run: claude-org setup $org"
+fi
+if [ -z "$org" ]; then
+  org=$(pick_org "$READY") || org=""
+  in_list "$org" "$READY" || org=${READY%%,*}
+  echo "claude-org: starting on $org" >&2
+fi
+
+handoff=$(mktemp "${TMPDIR:-/tmp}/claude-org.XXXXXX") || exit 1
+trap 'rm -f "$handoff"' EXIT INT
+# A TERM ends the whole run: when Codex is in the foreground it is acted on once Codex exits, and Claude is not started again.
+trap 'rm -f "$handoff"; exit 143' TERM
+
+n=0
+codex_rc=
+while :; do
+  : > "$handoff"
+  if names_session "$@"; then resumed=1; else resumed=; fi
+  dir=$(dir_of "$org")
+  if [ "$dir" = "$DEFAULT_DIR" ]; then
+    env -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CONFIG_DIR \
+      CLAUDE_ORG="$org" CLAUDE_ORGS="$READY" CLAUDE_ORG_HANDOFF="$handoff" CLAUDE_ORG_RESUMED="$resumed" CLAUDE_ORG_CODEX_EXIT="$codex_rc" \
+      claude --plugin-dir "$MOD_DIR" --settings "$ACCT_SWITCH_OFF" "$@"
+  else
+    env -u CLAUDE_CODE_OAUTH_TOKEN CLAUDE_CONFIG_DIR="$dir" \
+      CLAUDE_ORG="$org" CLAUDE_ORGS="$READY" CLAUDE_ORG_HANDOFF="$handoff" CLAUDE_ORG_RESUMED="$resumed" CLAUDE_ORG_CODEX_EXIT="$codex_rc" \
+      claude --plugin-dir "$MOD_DIR" --settings "$ACCT_SWITCH_OFF" "$@"
+  fi
+  rc=$?
+  codex_rc=
+
+  next=$(sed -n 's/^next=//p' "$handoff" | head -n 1)
+  sid=$(sed -n 's/^session=//p' "$handoff" | head -n 1)
+  fresh=$(sed -n 's/^fresh=//p' "$handoff" | head -n 1)
+  reason=$(sed -n 's/^reason=//p' "$handoff" | head -n 1)
+  takeover=$(sed -n 's/^codex=//p' "$handoff" | head -n 1)
+  until=$(sed -n 's/^until=//p' "$handoff" | head -n 1)
+  [ -n "$next" ] && { [ -n "$sid" ] || [ "$fresh" = 1 ]; } || exit "$rc"
+
+  # The directories may have changed while that session ran: look again.
+  distinct
+  READY=$(ready)
+  if ! in_list "$next" "$READY" || [ -z "$(dir_of "$next")" ]; then
+    echo "claude-org: handoff names an org that cannot start; stopping" >&2; exit "$rc"
+  fi
+  if [ -n "$sid" ] && ! printf '%s' "$sid" | grep -Eq "$UUID_RE"; then
+    echo "claude-org: handoff session id is not a UUID; stopping" >&2; exit "$rc"
+  fi
+  n=$((n + 1))
+  if [ "$n" -gt "$MAX_HANDOFFS" ]; then
+    echo "claude-org: $n handoffs in one run; stopping" >&2; exit "$rc"
+  fi
+
+  if [ "$takeover" = 1 ]; then
+    case "$until" in ''|*[!0-9]*|0?*) echo "claude-org: handoff resume time is not a number; stopping" >&2; exit "$rc" ;; esac
+    # No quota window is longer than a week: a later time is a bad reading, not something to sleep through.
+    if [ "${#until}" -gt 11 ] || [ "$until" -gt $(( $(date +%s) + 8 * 86400 )) ]; then
+      echo "claude-org: handoff resume time is more than 8 days away; stopping" >&2; exit "$rc"
+    fi
+    [ -n "$sid" ] || { echo "claude-org: Codex handoff without a session id; stopping" >&2; exit "$rc"; }
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || top=$PWD
+    notes=$top/.codex-takeover-notes.md
+    # The header also leaves the tree dirty, so the next limit hands nothing over again.
+    printf '\n## %s Codex 接手（Claude 不提交，等恢复后审查）\n' "$(date '+%Y-%m-%d %H:%M')" >> "$notes"
+    echo "claude-org: every org is limited; Codex works here until it is done (Ctrl-C stops it), then $next resumes${reason:+ ($reason)}" >&2
+    echo "claude-org: do not start another session in this directory until Claude is back; nothing stops one from editing the same files" >&2
+    trap : INT   # Ctrl-C reaches Codex; this loop carries on once it exits
+    codex exec -C "$top" -s workspace-write -m "$CODEX_MODEL" "$CODEX_PROMPT"
+    codex_rc=$?
+    printf '\nCodex 退出码 %s\n' "$codex_rc" >> "$notes"
+    trap 'echo "claude-org: stopped before resuming. Codex left uncommitted changes; review git status, then run: claude-org $next${sid:+ --resume $sid}" >&2; exit 130' INT
+    now=$(date +%s)
+    if [ "$until" -gt "$now" ]; then
+      echo "claude-org: Codex exited ($codex_rc); waiting $(( (until - now + 59) / 60 )) min for $next (Ctrl-C stops here)" >&2
+      sleep $((until - now))
+    fi
+    trap 'rm -f "$handoff"' INT
+  fi
+
+  # Rebuild the argument list: drop session selectors, keep everything else,
+  # and from `--` on keep every word as it is.
+  i=0; total=$#; rest=
+  while [ "$i" -lt "$total" ]; do
+    a=$1; shift; i=$((i + 1))
+    if [ -n "$rest" ]; then set -- "$@" "$a"; continue; fi
+    case "$a" in
+      --) rest=1; set -- "$@" "$a" ;;
+      -c|--continue) ;;
+      -r|--resume|--session-id)
+        if [ "$i" -lt "$total" ]; then
+          case "$1" in -*) ;; *) shift; i=$((i + 1)) ;; esac
+        fi ;;
+      --resume=*|--session-id=*) ;;
+      *) set -- "$@" "$a" ;;
+    esac
+  done
+  if [ -n "$sid" ]; then
+    set -- --resume "$sid" "$@"
+    echo "claude-org: $org -> $next, resuming $sid${reason:+ ($reason)}" >&2
+  else
+    echo "claude-org: $org -> $next, new session${reason:+ ($reason)}" >&2
+  fi
+  org=$next
+done

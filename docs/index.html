@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>multi-model-kit</title>
+<meta name="description" content="Run Claude as the orchestrator of a Claude + GPT + Gemini team.">
+<style>
+  :root { color-scheme: dark; --bg: #02060f; --panel: #0a1422; --line: #1c2c44; --text: #e6edf7; --muted: #8fa3bf; --accent: #2dd4bf; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 20px 56px; }
+  h1 { margin: 0 0 6px; font-size: 26px; }
+  p { margin: 0 0 20px; color: var(--muted); max-width: 70ch; }
+  a { color: var(--accent); }
+  .stage { width: 100%; aspect-ratio: 16 / 9.6; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); display: block; }
+  nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 20px; }
+  nav a { display: block; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); text-decoration: none; color: var(--text); }
+  nav a:hover, nav a:focus-visible { border-color: var(--accent); outline: none; }
+  nav b { display: block; color: var(--accent); font-weight: 600; }
+  nav span { color: var(--muted); font-size: 13px; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>multi-model-kit</h1>
+  <p>Run Claude as the orchestrator of a Claude + GPT + Gemini team: route work by strength, cross-review between vendors, hand off across sessions and machines, and keep going when a rate limit hits.</p>
+  <iframe class="stage" src="architecture/story.html" title="Animated walkthrough of multi-model-kit" loading="eager"></iframe>
+  <nav aria-label="Diagrams">
+    <a href="architecture/overview.html"><b>Overview</b><span>One orchestrator, three vendors</span></a>
+    <a href="architecture/dispatch.html"><b>One unit of work</b><span>Brief, execute, verify, review</span></a>
+    <a href="architecture/quota.html"><b>Rate limits</b><span>Switch org, Codex takeover</span></a>
+    <a href="architecture/handoff.html"><b>Handoff</b><span>To the cloud and back</span></a>
+  </nav>
+  <footer>
+    <a href="https://github.com/TheJason1997/multi-model-kit">Source on GitHub</a> ·
+    <a href="architecture/story.zh.html">简体中文</a> ·
+    Diagrams made with <a href="https://github.com/tt-a1i/archify">Archify</a>
+  </footer>
+</main>
+</body>
+</html>

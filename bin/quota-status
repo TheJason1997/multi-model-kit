@@ -1,0 +1,74 @@
+#!/bin/sh
+# quota-status — print the org-switch mod's last rate-limit readings: the
+# current org, its windows, whether it is saving quota, and the other orgs'
+# last readings. Run it before each unit; while it says "省额度模式: 开", the
+# main session only dispatches and reviews.
+#
+# It reads the mod's store file under ~/.claude/plugins/store and nothing else
+# (no account state, no credential). The current org is $CLAUDE_ORG (set by
+# claude-org), else the org read most recently.
+set -u
+
+store=$HOME/.claude/plugins/store
+exec python3 -I - "$store" "${CLAUDE_ORG-}" <<'PY'
+import glob, json, os, re, sys, time
+from datetime import datetime
+store, org = sys.argv[1], sys.argv[2]
+# The newest store file that parses and holds a well-formed reading; any other is skipped.
+def mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0
+def good(l):
+    w = l.get('windows')
+    return isinstance(w, dict) and isinstance(l.get('seenAt', 0), (int, float)) and all(isinstance(x, dict) and isinstance(x.get('percentUsed', 0), (int, float)) for x in w.values())
+ledgers, broken = {}, False
+for p in sorted(glob.glob(os.path.join(store, 'org-switch_*.json')), key=mtime, reverse=True):
+    try:
+        d = json.load(open(p))
+    except (OSError, ValueError):
+        broken = True
+        continue
+    ls = {k[7:]: v for k, v in d.items() if k.startswith('ledger:')} if isinstance(d, dict) else {}
+    if ls and all(isinstance(v, dict) and good(v) for v in ls.values()):
+        ledgers = ls
+        break
+    broken = broken or bool(ls)
+if not ledgers:
+    print('读数文件读不出来（空文件或不是 JSON）' if broken else '还没有读数')
+    sys.exit(0)
+now = time.time() * 1000
+if not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', org):
+    org = max(ledgers, key=lambda o: ledgers[o].get('seenAt', 0))
+
+def short(k):
+    return {'five_hour': '5h', 'seven_day': '7d'}.get(k, k)
+
+def span(ms):
+    m = round(ms / 60000)
+    return '%d min' % m if m < 60 else '%.1f h' % (m / 60) if m < 2880 else '%d d' % round(m / 1440)
+
+def windows(l):
+    out = []
+    for k, w in (l.get('windows') or {}).items():
+        s = '%s %s%%' % (short(k), round(w.get('percentUsed', 0)))
+        try:
+            t = datetime.fromisoformat(str(w.get('resetsAt')).replace('Z', '+00:00')).timestamp() * 1000
+            s += ' (resets in %s)' % span(t - now) if t > now else ' (reset since)'
+        except ValueError:
+            pass
+        out.append(s)
+    return ', '.join(out) or 'no reading'
+
+def seen(l):
+    return 'seen %s ago' % span(max(0, now - l.get('seenAt', now)))
+
+print('org: %s' % org)
+l = ledgers.get(org)
+print('%s: %s' % (org, windows(l) + '; ' + seen(l) if l else 'no reading'))
+print('省额度模式: %s' % ('开' if d.get('saving:' + org) else '关'))
+for o in sorted(ledgers):
+    if o != org:
+        print('%s: %s; %s' % (o, windows(ledgers[o]), seen(ledgers[o])))
+PY

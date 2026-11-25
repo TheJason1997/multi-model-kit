@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "title": "multi-model-kit 全流程",
+  "locale": "zh-CN",
+  "preset": "signal-flow",
+  "loop": true,
+  "views": [
+    {
+      "id": "overview",
+      "type": "architecture",
+      "input": "overview.zh.json"
+    },
+    {
+      "id": "dispatch",
+      "type": "workflow",
+      "input": "dispatch.zh.json"
+    },
+    {
+      "id": "quota",
+      "type": "lifecycle",
+      "input": "quota.zh.json"
+    },
+    {
+      "id": "handoff",
+      "type": "workflow",
+      "input": "handoff.zh.json"
+    }
+  ],
+  "steps": [
+    {
+      "view": "overview",
+      "title": "一个主控",
+      "body": "你只说一次。Claude 读共用规则，决定谁来做。",
+      "focus": {
+        "nodes": [
+          "user",
+          "rules",
+          "orchestrator"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "ask",
+          "load-rules"
+        ],
+        "action": "parallel"
+      }
+    },
+    {
+      "view": "overview",
+      "title": "三家模型，按专长分派",
+      "body": "界面和架构归 Claude，后端和难 Bug 归 GPT，文档和文案归 Gemini。",
+      "focus": {
+        "nodes": [
+          "orchestrator",
+          "claude",
+          "gpt",
+          "gemini"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "brief-claude",
+          "brief-gpt",
+          "brief-gemini"
+        ],
+        "action": "parallel"
+      }
+    },
+    {
+      "view": "overview",
+      "title": "撞限额也不停",
+      "body": "启动器盯着额度窗口，git 里的看板保存进度。",
+      "focus": {
+        "nodes": [
+          "orchestrator",
+          "board",
+          "launcher",
+          "codex"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "record",
+          "limit",
+          "all-limited"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "每个单元从派活单开始",
+      "body": "目标、范围、完成标准交给一个执行者，它在自己的工作树里做。",
+      "focus": {
+        "nodes": [
+          "route",
+          "brief",
+          "execute"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "route-brief",
+          "send-brief"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "先信任，再验收",
+      "body": "改动交回来时没有提交。主控重跑检查，通过才提交。",
+      "focus": {
+        "nodes": [
+          "execute",
+          "verify",
+          "commit"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "receipt",
+          "accept"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "换一家来审",
+      "body": "审的和写的不是同一家。只有真会出事才挡，最多两轮。",
+      "focus": {
+        "nodes": [
+          "commit",
+          "review",
+          "done"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "to-review",
+          "pass"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "quota",
+      "title": "换 org，对话不断",
+      "body": "到 80% 开始省着用。到 95% 换另一个 org 重启，续上同一段对话。",
+      "focus": {
+        "nodes": [
+          "working",
+          "saving",
+          "switch",
+          "resumed"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "soft",
+          "hard",
+          "other-free"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "quota",
+      "title": "所有 org 都受限？Codex 顶上",
+      "body": "Claude 停下时 Codex 在前台改文件。Claude 回来后审查并提交。",
+      "focus": {
+        "nodes": [
+          "switch",
+          "codex",
+          "review",
+          "resumed"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "all-long",
+          "codex-done",
+          "reviewed"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "handoff",
+      "title": "状态都在分支里",
+      "body": "代码和 .handoff.md 在同一个提交里，云端会话或手机都能接手。",
+      "focus": {
+        "nodes": [
+          "unit",
+          "board",
+          "takeover",
+          "work"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "push-unit",
+          "pull",
+          "continue"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "handoff",
+      "title": "随时叫它回来",
+      "body": "推一个信号分支。云端做完当前单元就停，你的电脑接着做。",
+      "focus": {
+        "nodes": [
+          "signal",
+          "stop",
+          "resume"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "see-signal",
+          "obey",
+          "back"
+        ],
+        "action": "trace"
+      }
+    }
+  ]
+}

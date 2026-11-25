@@ -1,0 +1,24 @@
+# 派活 skill 的 CE 示例配置。仓库里没有 .compound-engineering/config.local.yaml 时，
+# 主控复制过去；已有就沿用。键名对照 compound-engineering 3.38.3。
+# 这里只是兜底：每个单元选定的执行者、审查者和深度在对话里点名，点名优先。
+
+# 跨模型执行偏好：ce-work 的实现单元优先派给外部模型，依次试。
+work_engine_mode: prefer
+work_engine_preferences:
+  - harness: codex
+    model: "gpt-6.2-sol"
+  - harness: codex
+    model: "gpt-6.2-astra"
+
+# 各通道深度（写代码默认 medium；Antigravity 只接受 low/medium/high）。
+work_engine_effort:
+  codex: medium
+  claude: medium
+  antigravity: medium
+
+# 跨模型评审：ce-code-review、ce-doc-review 的另一家评审者和深度。
+# 改动碰到钱、权限、数据、对外消息时，在对话里点名 high，对话优先于本文件。
+cross_model_review_mode: auto
+cross_model_peer: codex
+cross_model_model: "gpt-6.2-sol"
+cross_model_effort: medium

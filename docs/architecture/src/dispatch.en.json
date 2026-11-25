@@ -1,0 +1,183 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "One unit of work: brief, execute, verify, review",
+    "output": "docs/architecture/dispatch.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "en",
+    "legend": {
+      "mode": "hidden"
+    },
+    "parentHref": "overview.html"
+  },
+  "lanes": [
+    {
+      "id": "orch",
+      "label": "Orchestrator (Claude)"
+    },
+    {
+      "id": "exec",
+      "label": "Executor (isolated worktree)"
+    },
+    {
+      "id": "rev",
+      "label": "Reviewer (another vendor)",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "route",
+    "brief",
+    "execute",
+    "verify",
+    "commit",
+    "review",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "route",
+      "lane": "orch",
+      "col": 0,
+      "type": "frontend",
+      "label": "Pick a route",
+      "sublabel": "lightest that works"
+    },
+    {
+      "id": "brief",
+      "lane": "orch",
+      "col": 1,
+      "type": "frontend",
+      "label": "Write the brief",
+      "sublabel": "goal, scope, done-when",
+      "tag": "board excerpt"
+    },
+    {
+      "id": "execute",
+      "lane": "exec",
+      "col": 1,
+      "type": "backend",
+      "label": "Execute",
+      "sublabel": "edits only, no commit",
+      "tag": "may object first"
+    },
+    {
+      "id": "verify",
+      "lane": "orch",
+      "col": 2,
+      "type": "frontend",
+      "label": "Verify receipt",
+      "sublabel": "rerun the checks"
+    },
+    {
+      "id": "commit",
+      "lane": "orch",
+      "col": 3,
+      "type": "database",
+      "label": "Commit unit",
+      "sublabel": "code + .handoff.md"
+    },
+    {
+      "id": "review",
+      "lane": "rev",
+      "col": 4,
+      "type": "security",
+      "label": "Review",
+      "sublabel": "blocks only on real harm",
+      "tag": "max 2 rounds"
+    },
+    {
+      "id": "done",
+      "lane": "orch",
+      "col": 5,
+      "type": "external",
+      "label": "Ask about a PR",
+      "sublabel": "never opened unasked"
+    }
+  ],
+  "edges": [
+    {
+      "id": "route-brief",
+      "from": "route",
+      "to": "brief"
+    },
+    {
+      "id": "send-brief",
+      "from": "brief",
+      "to": "execute",
+      "label": "brief",
+      "variant": "emphasis"
+    },
+    {
+      "id": "receipt",
+      "from": "execute",
+      "to": "verify",
+      "label": "receipt",
+      "variant": "emphasis"
+    },
+    {
+      "id": "accept",
+      "from": "verify",
+      "to": "commit",
+      "label": "checks pass"
+    },
+    {
+      "id": "redispatch",
+      "from": "verify",
+      "to": "brief",
+      "label": "fails: next in chain",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "to-review",
+      "from": "commit",
+      "to": "review",
+      "label": "diff",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pass",
+      "from": "review",
+      "to": "done",
+      "label": "no blockers",
+      "variant": "emphasis"
+    },
+    {
+      "id": "blockers",
+      "from": "review",
+      "to": "execute",
+      "label": "blockers: fix",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The brief",
+      "items": [
+        "Goal, in scope, out of scope, done-when, budget, reviewer",
+        "Carries the user's own words from the board"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Only the orchestrator commits",
+      "items": [
+        "Executors leave edits in their worktree",
+        "Every receipt is checked by rerunning its commands"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Review",
+      "items": [
+        "Author and reviewer are never the same vendor",
+        "After two failed rounds the human decides"
+      ]
+    }
+  ]
+}

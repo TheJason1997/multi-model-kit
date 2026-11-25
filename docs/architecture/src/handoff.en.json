@@ -1,0 +1,164 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Handing a task to the cloud and back",
+    "output": "docs/architecture/handoff.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "en",
+    "legend": {
+      "mode": "hidden"
+    },
+    "parentHref": "overview.html"
+  },
+  "lanes": [
+    {
+      "id": "local",
+      "label": "Your machine"
+    },
+    {
+      "id": "git",
+      "label": "Feature branch"
+    },
+    {
+      "id": "cloud",
+      "label": "Cloud session (or phone)"
+    }
+  ],
+  "mainPath": [
+    "unit",
+    "board",
+    "takeover",
+    "work",
+    "signal",
+    "stop",
+    "resume"
+  ],
+  "nodes": [
+    {
+      "id": "unit",
+      "lane": "local",
+      "col": 0,
+      "type": "frontend",
+      "label": "Finish a unit",
+      "sublabel": "orchestrator commits"
+    },
+    {
+      "id": "board",
+      "lane": "git",
+      "col": 0,
+      "type": "database",
+      "label": ".handoff.md",
+      "sublabel": "board + nine handoff notes"
+    },
+    {
+      "id": "takeover",
+      "lane": "cloud",
+      "col": 1,
+      "type": "cloud",
+      "label": "Take over",
+      "sublabel": "logs its start commit"
+    },
+    {
+      "id": "work",
+      "lane": "cloud",
+      "col": 2,
+      "type": "backend",
+      "label": "Keep working",
+      "sublabel": "pushes after every unit"
+    },
+    {
+      "id": "signal",
+      "lane": "git",
+      "col": 3,
+      "type": "messagebus",
+      "label": "Handback signal",
+      "sublabel": "<branch>-handback"
+    },
+    {
+      "id": "stop",
+      "lane": "cloud",
+      "col": 4,
+      "type": "security",
+      "label": "Stop record",
+      "sublabel": "same start commit"
+    },
+    {
+      "id": "resume",
+      "lane": "local",
+      "col": 5,
+      "type": "frontend",
+      "label": "Resume locally",
+      "sublabel": "reviews what cloud did"
+    }
+  ],
+  "edges": [
+    {
+      "id": "push-unit",
+      "from": "unit",
+      "to": "board",
+      "label": "one commit",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pull",
+      "from": "board",
+      "to": "takeover",
+      "label": "read",
+      "variant": "emphasis"
+    },
+    {
+      "id": "continue",
+      "from": "takeover",
+      "to": "work"
+    },
+    {
+      "id": "see-signal",
+      "from": "work",
+      "to": "signal",
+      "label": "checks",
+      "variant": "dashed"
+    },
+    {
+      "id": "obey",
+      "from": "signal",
+      "to": "stop",
+      "label": "stop",
+      "variant": "security"
+    },
+    {
+      "id": "back",
+      "from": "stop",
+      "to": "resume",
+      "label": "fetch",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "State lives in git",
+      "items": [
+        "Code and .handoff.md go in the same commit",
+        "Any session can pick up from the branch alone"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Calling it back",
+      "items": [
+        "Push the signal branch from anywhere",
+        "The cloud stops at the next unit boundary"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "No silent overlap",
+      "items": [
+        "Local work resumes only after a matching stop record",
+        "No signal for 30 minutes: ask the human"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "额度快用完时会发生什么",
+    "output": "docs/architecture/quota.zh.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "zh-CN",
+    "parentHref": "overview.zh.html"
+  },
+  "mainPath": [
+    "working",
+    "saving",
+    "switch",
+    "resumed"
+  ],
+  "states": [
+    {
+      "id": "working",
+      "type": "start",
+      "label": "正常工作",
+      "sublabel": "窗口用量低于 80%",
+      "step": "01"
+    },
+    {
+      "id": "saving",
+      "type": "active",
+      "label": "省额度",
+      "sublabel": "思考深度降一档",
+      "tag": "80%",
+      "step": "02"
+    },
+    {
+      "id": "switch",
+      "type": "decision",
+      "label": "选一个 org",
+      "sublabel": "启动器让 Claude 退出",
+      "tag": "95%",
+      "step": "03"
+    },
+    {
+      "id": "resumed",
+      "type": "success",
+      "label": "已恢复",
+      "sublabel": "同一段对话，换了 org",
+      "step": "04"
+    },
+    {
+      "id": "waiting",
+      "type": "waiting",
+      "label": "等待",
+      "sublabel": "20 分钟内就恢复"
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "Codex 接手",
+      "sublabel": "只改文件，不提交",
+      "tag": "前台运行"
+    },
+    {
+      "id": "review",
+      "type": "active",
+      "label": "审查 Codex 的改动",
+      "sublabel": "Claude 提交或撤销"
+    },
+    {
+      "id": "opus",
+      "type": "neutral",
+      "label": "先用 Opus",
+      "sublabel": "只有 Fable 受限"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "soft",
+      "from": "working",
+      "to": "saving",
+      "label": "用到 80%"
+    },
+    {
+      "id": "hard",
+      "from": "saving",
+      "to": "switch",
+      "label": "用到 95%"
+    },
+    {
+      "id": "other-free",
+      "from": "switch",
+      "to": "resumed",
+      "label": "另一个 org 有额度",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reset",
+      "from": "saving",
+      "to": "working",
+      "label": "窗口重置"
+    },
+    {
+      "id": "all-short",
+      "from": "switch",
+      "to": "waiting",
+      "label": "全部受限",
+      "variant": "dashed"
+    },
+    {
+      "id": "freed",
+      "from": "waiting",
+      "to": "resumed",
+      "label": "有 org 恢复"
+    },
+    {
+      "id": "all-long",
+      "from": "switch",
+      "to": "codex",
+      "label": "超过 20 分钟",
+      "variant": "security"
+    },
+    {
+      "id": "codex-done",
+      "from": "codex",
+      "to": "review",
+      "label": "Codex 退出"
+    },
+    {
+      "id": "reviewed",
+      "from": "review",
+      "to": "resumed",
+      "label": "已提交"
+    },
+    {
+      "id": "fable-limit",
+      "from": "working",
+      "to": "opus",
+      "label": "Fable 受限",
+      "variant": "dashed"
+    },
+    {
+      "id": "fable-back",
+      "from": "opus",
+      "to": "working",
+      "label": "限制到期"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "两个 org，两份登录",
+      "items": [
+        "每个 org 在自己的配置目录里登录",
+        "启动器不读任何凭据"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "还是同一段对话",
+      "items": [
+        "会话 id 交过去并续上",
+        "-- 之后的参数原样保留"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "同一时刻只有一个在跑",
+      "items": [
+        "Claude 不在跑时 Codex 才跑",
+        "它的改动等 Claude 审过才提交"
+      ]
+    }
+  ]
+}

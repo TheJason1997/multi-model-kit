@@ -1,0 +1,183 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "一个单元：派活、执行、验收、审查",
+    "output": "docs/architecture/dispatch.zh.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "zh-CN",
+    "legend": {
+      "mode": "hidden"
+    },
+    "parentHref": "overview.zh.html"
+  },
+  "lanes": [
+    {
+      "id": "orch",
+      "label": "主控（Claude）"
+    },
+    {
+      "id": "exec",
+      "label": "执行者（隔离的工作树）"
+    },
+    {
+      "id": "rev",
+      "label": "审查者（另一家模型）",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "route",
+    "brief",
+    "execute",
+    "verify",
+    "commit",
+    "review",
+    "done"
+  ],
+  "nodes": [
+    {
+      "id": "route",
+      "lane": "orch",
+      "col": 0,
+      "type": "frontend",
+      "label": "选路",
+      "sublabel": "够用的最轻一条"
+    },
+    {
+      "id": "brief",
+      "lane": "orch",
+      "col": 1,
+      "type": "frontend",
+      "label": "写派活单",
+      "sublabel": "目标、范围、完成标准",
+      "tag": "带看板摘录"
+    },
+    {
+      "id": "execute",
+      "lane": "exec",
+      "col": 1,
+      "type": "backend",
+      "label": "执行",
+      "sublabel": "只改文件，不提交",
+      "tag": "可以先提异议"
+    },
+    {
+      "id": "verify",
+      "lane": "orch",
+      "col": 2,
+      "type": "frontend",
+      "label": "验收回执",
+      "sublabel": "重跑一遍检查"
+    },
+    {
+      "id": "commit",
+      "lane": "orch",
+      "col": 3,
+      "type": "database",
+      "label": "提交这个单元",
+      "sublabel": "代码和 .handoff.md"
+    },
+    {
+      "id": "review",
+      "lane": "rev",
+      "col": 4,
+      "type": "security",
+      "label": "审查",
+      "sublabel": "只有真会出事才挡",
+      "tag": "最多两轮"
+    },
+    {
+      "id": "done",
+      "lane": "orch",
+      "col": 5,
+      "type": "external",
+      "label": "问是否开合并请求",
+      "sublabel": "不问不开"
+    }
+  ],
+  "edges": [
+    {
+      "id": "route-brief",
+      "from": "route",
+      "to": "brief"
+    },
+    {
+      "id": "send-brief",
+      "from": "brief",
+      "to": "execute",
+      "label": "派活单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "receipt",
+      "from": "execute",
+      "to": "verify",
+      "label": "回执",
+      "variant": "emphasis"
+    },
+    {
+      "id": "accept",
+      "from": "verify",
+      "to": "commit",
+      "label": "检查通过"
+    },
+    {
+      "id": "redispatch",
+      "from": "verify",
+      "to": "brief",
+      "label": "不过：换备选",
+      "variant": "dashed",
+      "role": "return"
+    },
+    {
+      "id": "to-review",
+      "from": "commit",
+      "to": "review",
+      "label": "改动",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pass",
+      "from": "review",
+      "to": "done",
+      "label": "没有挡住项",
+      "variant": "emphasis"
+    },
+    {
+      "id": "blockers",
+      "from": "review",
+      "to": "execute",
+      "label": "挡住：去修",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "派活单",
+      "items": [
+        "目标、范围内、范围外、完成标准、预算、谁来审",
+        "带着看板里用户的原话"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "只有主控提交",
+      "items": [
+        "执行者把改动留在工作树里",
+        "每份回执都重跑命令核对"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "审查",
+      "items": [
+        "写的和审的不是同一家",
+        "两轮不过交给人定"
+      ]
+    }
+  ]
+}

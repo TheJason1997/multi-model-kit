@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "multi-model-kit：一个主控，三家模型",
+    "output": "docs/architecture/overview.zh.html",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow",
+    "locale": "zh-CN",
+    "legend": {
+      "mode": "hidden"
+    }
+  },
+  "layout": {
+    "mode": "auto"
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "你",
+      "sublabel": "说一次需求"
+    },
+    {
+      "id": "rules",
+      "type": "database",
+      "label": "规则和 skill",
+      "sublabel": "CLAUDE.md, AGENTS.md, GEMINI.md",
+      "tag": "install.sh"
+    },
+    {
+      "id": "orchestrator",
+      "type": "frontend",
+      "label": "主控",
+      "sublabel": "Claude：分派、验收、提交"
+    },
+    {
+      "id": "claude",
+      "type": "backend",
+      "label": "Claude Opus",
+      "sublabel": "界面、架构、读懂代码库"
+    },
+    {
+      "id": "gpt",
+      "type": "backend",
+      "label": "GPT",
+      "sublabel": "后端、难 Bug、调研"
+    },
+    {
+      "id": "gemini",
+      "type": "backend",
+      "label": "Gemini",
+      "sublabel": "文档、文案、点子"
+    },
+    {
+      "id": "review",
+      "type": "security",
+      "label": "换一家来审",
+      "sublabel": "不让作者那家审",
+      "tag": "最多两轮",
+      "href": "dispatch.zh.html"
+    },
+    {
+      "id": "board",
+      "type": "database",
+      "label": ".handoff.md",
+      "sublabel": "看板和交接说明",
+      "href": "handoff.zh.html"
+    },
+    {
+      "id": "launcher",
+      "type": "cloud",
+      "label": "claude-org",
+      "sublabel": "额度到 95% 换 org",
+      "href": "quota.zh.html"
+    },
+    {
+      "id": "codex",
+      "type": "external",
+      "label": "Codex 接手",
+      "sublabel": "所有 org 都受限时",
+      "href": "quota.zh.html"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "执行者，各在自己的 git 工作树里",
+      "wraps": [
+        "claude",
+        "gpt",
+        "gemini"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "ask",
+      "from": "user",
+      "to": "orchestrator",
+      "label": "需求",
+      "variant": "emphasis"
+    },
+    {
+      "id": "load-rules",
+      "from": "rules",
+      "to": "orchestrator",
+      "label": "全局规则",
+      "variant": "dashed"
+    },
+    {
+      "id": "brief-claude",
+      "from": "orchestrator",
+      "to": "claude",
+      "label": "派活单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "brief-gpt",
+      "from": "orchestrator",
+      "to": "gpt",
+      "label": "派活单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "brief-gemini",
+      "from": "orchestrator",
+      "to": "gemini",
+      "label": "派活单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "diff-claude",
+      "from": "claude",
+      "to": "review",
+      "label": "改动"
+    },
+    {
+      "id": "diff-gpt",
+      "from": "gpt",
+      "to": "review",
+      "label": "改动"
+    },
+    {
+      "id": "diff-gemini",
+      "from": "gemini",
+      "to": "review",
+      "label": "改动"
+    },
+    {
+      "id": "verdict",
+      "from": "review",
+      "to": "orchestrator",
+      "label": "挡住或通过",
+      "variant": "security"
+    },
+    {
+      "id": "record",
+      "from": "orchestrator",
+      "to": "board",
+      "label": "提交并更新"
+    },
+    {
+      "id": "limit",
+      "from": "orchestrator",
+      "to": "launcher",
+      "label": "撞限额",
+      "variant": "dashed"
+    },
+    {
+      "id": "all-limited",
+      "from": "launcher",
+      "to": "codex",
+      "label": "全部受限",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "按专长分派",
+      "items": [
+        "从最轻的路走起",
+        "先用默认档，没做对才升档"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "跨家审查",
+      "items": [
+        "Claude 和 Gemini 写的由 GPT 审",
+        "GPT 写的由 Claude 审",
+        "两轮不过交给人定"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "撞限额也不停",
+      "items": [
+        "第二个 org 续上同一段对话",
+        "所有 org 都受限时 Codex 接着做",
+        ".handoff.md 把状态带到别的机器"
+      ]
+    }
+  ]
+}

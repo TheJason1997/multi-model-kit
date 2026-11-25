@@ -1,0 +1,16 @@
+{
+  "orgs": [
+    {
+      "key": "main",
+      "name": "Your first org name",
+      "configDir": "~/.claude",
+      "environmentId": ""
+    },
+    {
+      "key": "org2",
+      "name": "Your second org name",
+      "configDir": "~/.claude-org2",
+      "environmentId": ""
+    }
+  ]
+}

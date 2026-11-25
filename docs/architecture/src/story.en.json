@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "title": "multi-model-kit, end to end",
+  "locale": "en",
+  "preset": "signal-flow",
+  "loop": true,
+  "views": [
+    {
+      "id": "overview",
+      "type": "architecture",
+      "input": "overview.en.json"
+    },
+    {
+      "id": "dispatch",
+      "type": "workflow",
+      "input": "dispatch.en.json"
+    },
+    {
+      "id": "quota",
+      "type": "lifecycle",
+      "input": "quota.en.json"
+    },
+    {
+      "id": "handoff",
+      "type": "workflow",
+      "input": "handoff.en.json"
+    }
+  ],
+  "steps": [
+    {
+      "view": "overview",
+      "title": "One orchestrator",
+      "body": "You ask once. Claude reads the shared rules and decides who does the work.",
+      "focus": {
+        "nodes": [
+          "user",
+          "rules",
+          "orchestrator"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "ask",
+          "load-rules"
+        ],
+        "action": "parallel"
+      }
+    },
+    {
+      "view": "overview",
+      "title": "Three vendors, routed by strength",
+      "body": "Claude takes UI and architecture, GPT takes backend and hard bugs, Gemini takes docs and copy.",
+      "focus": {
+        "nodes": [
+          "orchestrator",
+          "claude",
+          "gpt",
+          "gemini"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "brief-claude",
+          "brief-gpt",
+          "brief-gemini"
+        ],
+        "action": "parallel"
+      }
+    },
+    {
+      "view": "overview",
+      "title": "Built to survive rate limits",
+      "body": "A launcher watches the quota windows, and the board in git carries the state.",
+      "focus": {
+        "nodes": [
+          "orchestrator",
+          "board",
+          "launcher",
+          "codex"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "record",
+          "limit",
+          "all-limited"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "Every unit starts with a brief",
+      "body": "Goal, scope and done-when go to one executor in its own git worktree.",
+      "focus": {
+        "nodes": [
+          "route",
+          "brief",
+          "execute"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "route-brief",
+          "send-brief"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "Trust, then verify",
+      "body": "Edits come back uncommitted. The orchestrator reruns the checks before it commits.",
+      "focus": {
+        "nodes": [
+          "execute",
+          "verify",
+          "commit"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "receipt",
+          "accept"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "dispatch",
+      "title": "Another vendor reviews",
+      "body": "The reviewer is never the author's vendor. It blocks only on real harm, for at most two rounds.",
+      "focus": {
+        "nodes": [
+          "commit",
+          "review",
+          "done"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "to-review",
+          "pass"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "quota",
+      "title": "Switch org, keep the conversation",
+      "body": "At 80% it spends less. At 95% it restarts under the other org and resumes the same session.",
+      "focus": {
+        "nodes": [
+          "working",
+          "saving",
+          "switch",
+          "resumed"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "soft",
+          "hard",
+          "other-free"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "quota",
+      "title": "Every org limited? Codex steps in",
+      "body": "Codex edits in the foreground while Claude is down. Claude reviews and commits when it returns.",
+      "focus": {
+        "nodes": [
+          "switch",
+          "codex",
+          "review",
+          "resumed"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "all-long",
+          "codex-done",
+          "reviewed"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "handoff",
+      "title": "State lives in the branch",
+      "body": "Code and .handoff.md land in one commit, so a cloud session or your phone can take over.",
+      "focus": {
+        "nodes": [
+          "unit",
+          "board",
+          "takeover",
+          "work"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "push-unit",
+          "pull",
+          "continue"
+        ],
+        "action": "trace"
+      }
+    },
+    {
+      "view": "handoff",
+      "title": "Call it back any time",
+      "body": "Push the signal branch. The cloud stops at the next unit and your machine resumes.",
+      "focus": {
+        "nodes": [
+          "signal",
+          "stop",
+          "resume"
+        ]
+      },
+      "trace": {
+        "edges": [
+          "see-signal",
+          "obey",
+          "back"
+        ],
+        "action": "trace"
+      }
+    }
+  ]
+}
