@@ -4,13 +4,15 @@
       "key": "main",
       "name": "Your first org name",
       "configDir": "~/.claude",
-      "environmentId": ""
+      "environmentId": "",
+      "t3Instance": "claudeAgent"
     },
     {
       "key": "org2",
       "name": "Your second org name",
       "configDir": "~/.claude-org2",
-      "environmentId": ""
+      "environmentId": "",
+      "t3Instance": "claude-org2"
     }
   ]
 }

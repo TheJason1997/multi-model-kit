@@ -57,7 +57,7 @@
 git clone https://github.com/TheJason1997/multi-model-kit.git
 cd multi-model-kit
 sh install.sh --check   # 只报告现状，不改任何文件
-sh install.sh           # 链接 skill，写入规则
+sh install.sh           # 链接 skill 和 quota-status，写入规则
 ```
 
 `install.sh` 覆盖三个工具，配置目录不存在的会跳过：
@@ -67,6 +67,8 @@ sh install.sh           # 链接 skill，写入规则
 | Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills/` |
 | Codex | `~/.codex/AGENTS.md` | `~/.agents/skills/` |
 | Gemini CLI | `~/.gemini/GEMINI.md` | `~/.gemini/skills/` |
+
+安装脚本会把 `~/.local/bin/quota-status` 链接到本仓库的 `bin/quota-status`。删除这个符号链接即可卸载该命令。
 
 重复执行结果不变。标记之外的内容逐字节保留，指令文件是符号链接时写到链接指向的真实文件。任何一个目标有冲突，整次安装在写入之前就退出。冲突包括：同名但不属于本仓库的 skill、只读文件或悬空链接、不可写的目录、不成对的标记、带 CRLF 的标记行。
 
@@ -102,8 +104,10 @@ Codex 接手有四个条件：当前目录是 git 仓库、有 `.handoff.md`、�
 
 | 问题 | 结论 |
 |---|---|
-| 怎么用第二个 org？ | 在 T3 设置里再加一个 Claude 实例，环境变量 `CLAUDE_CONFIG_DIR` 指向那个 org 的配置目录，模型选择器里马上就能选到。派给它的任务确实跑在第二个 org 下；线程在两个实例之间切换后对话能否续上，还没验证。 |
-| 能看到额度百分比吗？ | 能，在 **Usage → Limits** 里，或输入 `/usage-limits`。但没有工具能把读数交给模型，所以 80% 和 95% 的自动处理只在终端的 `claude-org` 下生效。 |
+| 怎么用第二个 org？ | 在 T3 设置里再加一个 Claude 实例，`CLAUDE_CONFIG_DIR` 指向那个 org 的配置目录，模型选择器里马上就能选到。 |
+| 会自己换 org 吗？ | 两个单元之间会，一轮对话中途不会。给每个 Claude 实例加 `CLAUDE_ORG`、`CLAUDE_ORGS` 和 `CLAUDE_CODE_PLUGIN_DIRS=<仓库>/mods/org-switch`，并在 `orgs.json` 里写上实例名（`t3Instance`）。这样 mod 在 T3 会话里只记录额度，不做任何切换。主控每个单元开始前运行 `quota-status`，看到“建议换到: <org>（T3 实例 <实例名>）”就把自己的线程切到那个实例。一轮中途撞满时仍要你手动切。 |
+| 换过去后对话还在吗？ | 还没验证。 |
+| 能看到额度百分比吗？ | 能，在 **Usage → Limits** 里，或输入 `/usage-limits`。模型通过 `quota-status` 读取。 |
 | 所有 Claude org 都受限时，Codex 会自己接手吗？ | 不会，T3 没有这样的触发器。手动把线程切到 GPT；同一份规则已经装给 Codex，它可以当主控。 |
 | 本机能给运行中的云端会话发消息吗？ | 能：`claude -p "消息" --cloud "<会话 id 或链接>"`。依据是官方文档和命令行帮助，这里没有真的发过。 |
 
@@ -112,10 +116,10 @@ Codex 接手有四个条件：当前目录是 git 仓库、有 `.handoff.md`、�
 自动检查全部通过：
 
 ```sh
-sh tests/install.test.sh                    # 87 项
-sh tests/claude-org.test.sh                 # 40 项
+sh tests/install.test.sh                    # 106 项
+sh tests/claude-org.test.sh                 # 49 项
 claude plugin validate mods/org-switch
-claude plugin test mods/org-switch          # 37 项
+claude plugin test mods/org-switch          # 44 项
 ```
 
 下面这些还没有真实跑过：

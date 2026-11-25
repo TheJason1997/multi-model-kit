@@ -59,7 +59,7 @@ The rules and skills are written in Chinese. The models follow them in any conve
 git clone https://github.com/TheJason1997/multi-model-kit.git
 cd multi-model-kit
 sh install.sh --check   # report only, changes nothing
-sh install.sh           # link the skills and write the rules
+sh install.sh           # link the skills and quota-status and write the rules
 ```
 
 `install.sh` covers three tools and skips any whose config directory does not exist:
@@ -69,6 +69,8 @@ sh install.sh           # link the skills and write the rules
 | Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills/` |
 | Codex | `~/.codex/AGENTS.md` | `~/.agents/skills/` |
 | Gemini CLI | `~/.gemini/GEMINI.md` | `~/.gemini/skills/` |
+
+The installer links the `quota-status` command at `~/.local/bin/quota-status` to this repository's `bin/quota-status`. Remove that symlink to uninstall the command.
 
 Running it again changes nothing. It leaves everything outside its markers byte for byte as it was, writes through a symlinked instruction file, and stops before writing anything if any destination conflicts: a skill of the same name that is not ours, a read-only or dangling file, a directory it cannot write to, unpaired markers, or marker lines with CRLF endings.
 
@@ -104,8 +106,10 @@ Codex takes over only when the directory is a git repository with a `.handoff.md
 
 | Question | Answer |
 |---|---|
-| How do I use the second org? | Add a second Claude provider instance in T3's settings with the environment variable `CLAUDE_CONFIG_DIR` set to that org's config directory. It appears in the model picker at once. A task sent to it ran under the second org; whether a thread keeps its conversation when moved between the two instances is not verified yet. |
-| Can I see quota percentages? | Yes, in **Usage → Limits** or with `/usage-limits`. No tool returns them to an agent, so the 80% and 95% automation exists only under `claude-org` in a terminal. |
+| How do I use the second org? | Add a second Claude provider instance in T3's settings with `CLAUDE_CONFIG_DIR` set to that org's config directory. It appears in the model picker at once. |
+| Does it switch org by itself? | Between units of work, yes; in the middle of a turn, no. Give each Claude instance `CLAUDE_ORG`, `CLAUDE_ORGS` and `CLAUDE_CODE_PLUGIN_DIRS=<repo>/mods/org-switch`, and name the instances in `orgs.json` (`t3Instance`). The mod then records quota in T3 sessions without switching anything. Before each unit the orchestrator runs `quota-status`; when it prints `建议换到: <org>（T3 实例 <instance>）` ("move to") the orchestrator moves its own thread to that instance. A limit hit mid-turn still needs you to switch the thread by hand. |
+| Does the conversation survive the move? | Not verified yet. |
+| Can I see quota percentages? | Yes, in **Usage → Limits** or with `/usage-limits`. Agents read them through `quota-status`. |
 | Does Codex take over by itself when every Claude org is limited? | No. T3 has no trigger for that. Switch the thread to GPT by hand; the same rules are installed for Codex, so it can act as orchestrator. |
 | Can my machine message a running cloud session? | Yes: `claude -p "message" --cloud "<session id or URL>"`. This comes from the documentation and the CLI help. It has not been sent for real here. |
 
@@ -114,10 +118,10 @@ Codex takes over only when the directory is a git repository with a `.handoff.md
 Automated checks pass:
 
 ```sh
-sh tests/install.test.sh                    # 87 checks
-sh tests/claude-org.test.sh                 # 40 checks
+sh tests/install.test.sh                    # 106 checks
+sh tests/claude-org.test.sh                 # 49 checks
 claude plugin validate mods/org-switch
-claude plugin test mods/org-switch          # 37 tests
+claude plugin test mods/org-switch          # 44 tests
 ```
 
 These have not been run for real yet:

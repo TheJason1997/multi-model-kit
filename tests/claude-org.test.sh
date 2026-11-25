@@ -303,6 +303,110 @@ qs || { cat "$tmp/out" >&2; fail "$label: exit code"; }
 rm -f "$store/org-switch_dangling.json" "$store/org-switch_badwin.json"
 pass "$label"
 
+# A checkout of its own: bin/quota-status beside an orgs.json that names T3 instances,
+# reached through a link from another directory; and one with no orgs.json at all.
+qrepo=$tmp/qrepo
+mkdir -p "$qrepo/bin" "$tmp/qnoorgs/bin" "$tmp/qlink"
+cp "$repo/bin/quota-status" "$qrepo/bin/quota-status"
+cp "$repo/bin/quota-status" "$tmp/qnoorgs/bin/quota-status"
+ln -s "$qrepo/bin/quota-status" "$tmp/qlink/quota-status"
+cat > "$qrepo/orgs.json" <<'EOF'
+{ "orgs": [
+  { "key": "one", "name": "", "configDir": "~/.claude", "environmentId": "", "t3Instance": "claudeAgent" },
+  { "key": "two", "name": "", "configDir": "~/.claude-two", "environmentId": "", "t3Instance": "claude-org2" }
+] }
+EOF
+# Every store file emptied of readings (a file with none is skipped).
+blank_store() { for f in "$store"/org-switch_*.json; do echo '{}' > "$f"; done; }
+# put FILE ORG 5H% SEEN_MIN_AGO RESET_IN_MIN [saving]: add one org's reading to a store file.
+put() {
+    python3 -I - "$store/org-switch_$1.json" "$2" "$3" "$4" "$5" "${6-}" <<'PY'
+import json, sys, time
+p, org, pct, ago, reset, saving = sys.argv[1], sys.argv[2], float(sys.argv[3]), float(sys.argv[4]), float(sys.argv[5]), sys.argv[6]
+now = time.time() * 1000
+iso = lambda ms: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(ms / 1000))
+try:
+    d = json.load(open(p))
+except (OSError, ValueError):
+    d = {}
+d['ledger:' + org] = {'seenAt': now - ago * 60000, 'windows': {'five_hour': {'percentUsed': pct, 'resetsAt': iso(now + reset * 60000 + 30000)}}}
+if saving:
+    d['saving:' + org] = {'since': now, 'softAt': 80}
+json.dump(d, open(p, 'w'))
+PY
+}
+qrun() { (CLAUDE_ORG=one sh "$1") > "$tmp/out" 2>&1; }
+
+label="quota-status reads every store file and takes each org's newest reading, with its saving mark"
+blank_store
+put plugindir one 81 2 90
+put plugindir two 70 60 50
+put envdirs two 12 5 50
+put envdirs one 99 30 90 saving
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+printf '%s\n' 'org: one' 'one: 5h 81% (resets in 1.5 h); seen 2 min ago' '省额度模式: 关' 'two: 5h 12% (resets in 50 min); seen 5 min ago' > "$tmp/want"
+cmp -s "$tmp/want" "$tmp/out" || { diff "$tmp/want" "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status, current org at the hard threshold and another free: names it and its T3 instance, through a link'
+blank_store
+put a one 100 1 120
+put b two 12 5 50
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+[ "$(sed -n '$p' "$tmp/out")" = '建议换到: two（T3 实例 claude-org2）' ] && [ "$(wc -l < "$tmp/out" | tr -d ' ')" = 5 ] || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status with no orgs.json: names the org without an instance, no error'
+qrun "$tmp/qnoorgs/bin/quota-status" || fail "$label: exit code"
+[ "$(sed -n '$p' "$tmp/out")" = '建议换到: two' ] && ! grep -q Traceback "$tmp/out" || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label="quota-status: the other org's full window has reset since, so it is free"
+put b two 100 30 -10
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+[ "$(sed -n '$p' "$tmp/out")" = '建议换到: two（T3 实例 claude-org2）' ] || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status, every org limited: says none and when the first frees'
+put b two 100 5 50
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+[ "$(sed -n '$p' "$tmp/out")" = '建议换到: 无（都受限，最早 50 min 后恢复）' ] || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label="quota-status: a bad entry in a file does not hide the good one beside it (the other org's newer full reading still counts)"
+blank_store
+put a one 100 1 120
+put a two 12 60 50
+put b two 100 2 200
+python3 -I -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ledger:three"]={"windows":"nope"}; json.dump(d,open(p,"w"))' "$store/org-switch_b.json"
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+sed -n '$p' "$tmp/out" | grep -q '^建议换到: 无（都受限' || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status: a full window that does not say when it resets is never suggested'
+blank_store
+put a one 100 1 120
+put b two 100 2 200
+python3 -I -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); del d["ledger:two"]["windows"]["five_hour"]["resetsAt"]; json.dump(d,open(p,"w"))' "$store/org-switch_b.json"
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+sed -n '$p' "$tmp/out" | grep -q '^建议换到: 无（都受限' || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status: an org every model is held off on is not suggested until the hold ends'
+blank_store
+put a one 100 1 120
+put b two 12 5 50
+python3 -I -c 'import json,sys,time; p=sys.argv[1]; d=json.load(open(p)); d["block:two"]={"kind":"all","until":time.time()*1000+600000}; json.dump(d,open(p,"w"))' "$store/org-switch_b.json"
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+sed -n '$p' "$tmp/out" | grep -q '^建议换到: 无（都受限，最早 10 min 后恢复）' || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
+label='quota-status, current org under the hard threshold: no suggestion line'
+put a one 94 1 120
+qrun "$tmp/qlink/quota-status" || fail "$label: exit code"
+! grep -q '建议换到' "$tmp/out" && [ "$(wc -l < "$tmp/out" | tr -d ' ')" = 4 ] || { cat "$tmp/out" >&2; fail "$label"; }
+pass "$label"
+
 printf '# Codex takeover\n'
 # The fake codex and sleep live in their own directory, on PATH only here.
 cbin=$tmp/cbin

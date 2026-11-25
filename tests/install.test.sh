@@ -22,11 +22,13 @@ begin='<!-- BEGIN multi-model-kit -->'
 end='<!-- END multi-model-kit -->'
 rule='Example global rule.'
 
-mkdir -p "$fake_repo/rules" "$HOME"
+mkdir -p "$fake_repo/rules" "$fake_repo/bin" "$HOME"
 for skill in prompt-library dispatch task-handoff; do
     mkdir -p "$fake_repo/skills/$skill"
 done
 printf '%s\n' "$rule" > "$fake_repo/rules/multi-model.md"
+printf '#!/bin/sh\nexit 0\n' > "$fake_repo/bin/quota-status"
+chmod +x "$fake_repo/bin/quota-status"
 cp "$repo/install.sh" "$fake_repo/install.sh" || fail 'could not copy the installer into the fixture'
 
 install() {
@@ -334,3 +336,80 @@ mkdir -p "$HOME/.codex"
 printf 'user\n' > "$HOME/.codex/AGENTS.md"
 install --check > "$tmp/check.out"
 reports 'Codex rules AGENTS.md: missing'
+
+printf '# Install quota-status\n'
+HOME=$tmp/command\ home
+command_dir=$HOME/.local/bin
+command_link=$command_dir/quota-status
+mkdir -p "$HOME"
+tar -cf "$tmp/before.tar" -C "$HOME" .
+PATH=/usr/bin:/bin install --check > "$tmp/check.out" 2> "$tmp/check.err"
+reports 'command quota-status: missing'
+[ "$(wc -l < "$tmp/check.out")" -eq 13 ] &&
+    [ "$(tail -n 1 "$tmp/check.out")" = 'command quota-status: missing' ] ||
+    fail 'command status should be the last of 13 check lines'
+[ ! -s "$tmp/check.err" ] || fail '--check printed a PATH hint'
+tar -cf "$tmp/after.tar" -C "$HOME" .
+same_file "$tmp/before.tar" "$tmp/after.tar" 'checking a missing command leaves HOME untouched and prints no hint'
+
+PATH=/usr/bin:/bin install 2> "$tmp/install.err"
+[ -L "$command_link" ] && [ "$(readlink "$command_link")" = "$fake_repo/bin/quota-status" ] ||
+    fail 'quota-status does not link to the repository command'
+pass 'fresh install links quota-status to the repository command'
+[ "$(cat "$tmp/install.err")" = 'Add ~/.local/bin to your PATH to run quota-status.' ] ||
+    fail 'install did not print one PATH hint when the directory was absent'
+pass 'install hints when ~/.local/bin is missing from PATH'
+
+ls -di "$command_link" > "$tmp/link.before"
+PATH=/usr/bin:"$command_dir":/bin install 2> "$tmp/install.err"
+[ ! -s "$tmp/install.err" ] || fail 'install printed a PATH hint despite the directory being on PATH'
+pass 'install is quiet when ~/.local/bin is on PATH'
+ls -di "$command_link" > "$tmp/link.after"
+same_file "$tmp/link.before" "$tmp/link.after" 'rerun leaves the existing quota-status link untouched'
+install --check > "$tmp/check.out"
+reports 'command quota-status: installed'
+
+rm "$command_link"
+ln -s '../../../fake repo/bin/quota-status' "$command_link"
+PATH=/usr/bin:"$command_dir":/bin install 2> "$tmp/install.err"
+[ "$(readlink "$command_link")" = '../../../fake repo/bin/quota-status' ] ||
+    fail 'install replaced a relative link to the repository command'
+pass 'install preserves a relative link to the repository command'
+
+printf '# quota-status conflicts prevent writes to all targets\n'
+for case in file foreign-link directory readonly-dir closed-dir; do
+    HOME=$tmp/command\ $case\ home
+    command_dir=$HOME/.local/bin
+    command_link=$command_dir/quota-status
+    mkdir -p "$command_dir" "$HOME/.codex" "$HOME/.gemini"
+    case $case in
+        file) printf 'User command.\n' > "$command_link" ;;
+        foreign-link) ln -s "$fake_repo/install.sh" "$command_link" ;;
+        directory) mkdir "$command_link" ;;
+        readonly-dir) chmod 555 "$command_dir" ;;
+        closed-dir) chmod 600 "$command_dir" ;;
+    esac
+    [ "$case" != closed-dir ] || chmod 700 "$command_dir"
+    tar -cf "$tmp/before.tar" -C "$HOME" .
+    [ "$case" != closed-dir ] || chmod 600 "$command_dir"
+    install --check > "$tmp/check.out"
+    reports 'command quota-status: conflict'
+    if install > "$tmp/conflict.out" 2>&1; then
+        fail "install succeeded despite a $case quota-status destination"
+    fi
+    grep -F "$command_link" "$tmp/conflict.out" >/dev/null ||
+        fail "command conflict error did not name $command_link"
+    [ "$case" != closed-dir ] || chmod 700 "$command_dir"
+    tar -cf "$tmp/after.tar" -C "$HOME" .
+    same_file "$tmp/before.tar" "$tmp/after.tar" "a $case quota-status destination leaves HOME untouched"
+    chmod u+w "$command_dir"
+done
+
+printf '# Our link in a read-only directory is still installed\n'
+HOME=$tmp/readonly\ bin\ home
+mkdir -p "$HOME/.local/bin"
+ln -s "$fake_repo/bin/quota-status" "$HOME/.local/bin/quota-status"
+chmod 555 "$HOME/.local/bin"
+install --check > "$tmp/check.out"
+reports 'command quota-status: installed'
+chmod 755 "$HOME/.local/bin"

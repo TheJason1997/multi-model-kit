@@ -23,6 +23,12 @@
 // resumed session is told so (CLAUDE_ORG_CODEX_EXIT) instead of "继续". Its
 // changes leave the tree dirty, so the next limit does not hand over again.
 //
+// Without CLAUDE_ORG_HANDOFF (a process the launcher did not start, such as a
+// T3 Code instance that sets CLAUDE_ORG and CLAUDE_ORGS itself) the mod only
+// records: readings, the saving mark, the soft-threshold effort and the status
+// line. It never switches, exits, waits or submits; bin/quota-status reads the
+// readings and says which org to move to.
+//
 // The strategy (`decide`) is a pure function; the engine calls stay in the
 // handlers below it.
 import type { EngineInterface as Engine, Register, SessionRateLimit } from 'claude-code'
@@ -61,6 +67,7 @@ const PROBE_MS = 30 * 60_000 // an unexplained limit holds the org off this long
 const SWITCH_COOLDOWN_MS = 2 * 60_000
 const DOWNGRADE_MODEL = 'claude-opus-5-5'
 const CONTINUE_TEXT = '继续'
+export const RECORD_ONLY_SWITCH = '这个会话不是由 claude-org 启动的，换 org 请切换线程的模型实例。'
 const COMPACT_RETRY_MS = 2000
 const COMPACT_RETRIES = 150 // five minutes of "a turn is still running"
 const NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/
@@ -164,6 +171,7 @@ let saving = false // this org is past the soft threshold
 let restoreId = 0 // bumps to cancel a pending return to Fable
 
 const active = () => env.org !== undefined && env.handoff !== undefined
+const recordOnly = () => env.org !== undefined && env.handoff === undefined
 const shouldCompact = () => contextPct >= COMPACT_AT
 
 async function loadEnv($: Engine): Promise<void> {
@@ -410,7 +418,7 @@ export const register: Register = on => {
     handoffStarted = false
     if (env.org !== undefined) saving = (await $.store.get(`saving:${env.org}`)) != null
     await $.command.register({ name: 'org', description: 'Org rate-limit windows; /org switch [org] moves this session to another org', argumentHint: '[status | switch [org]]' })
-    if (!active()) return started
+    if (env.org === undefined) return started
     // A reading can arrive before the launcher's environment is known here, and a full window
     // never moves again: take what the status line has now, so this org's state is on record.
     const usage = await $.session.usage()
@@ -420,6 +428,7 @@ export const register: Register = on => {
       await updateSaving($, env.org as string, lastLimits)
     }
     $.ui.status(statusText(env.org as string, lastLimits))
+    if (!active()) return started
     // Resumed by a switch: restore the model it chose and continue the turn that
     // failed; after a Codex takeover, say what Codex left instead of "继续".
     const key = `resume:${await $.session.id()}`
@@ -442,14 +451,14 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     lastLimits = e.rateLimits
     contextPct = e.context.percent ?? contextPct
-    if (active()) {
-      const cur = env.org as string
+    if (env.org !== undefined) {
+      const cur = env.org
       if (e.rateLimits.length > 0) {
         await writeLedger($, cur, e.rateLimits)
         await updateSaving($, cur, e.rateLimits)
       }
       $.ui.status(statusText(cur, e.rateLimits))
-      const hot = e.changed.includes('rateLimits') ? e.rateLimits.find(w => w.percentUsed >= THRESHOLD) : undefined
+      const hot = active() && e.changed.includes('rateLimits') ? e.rateLimits.find(w => w.percentUsed >= THRESHOLD) : undefined
       if (hot !== undefined) await onLimited($, 'window', `${short(hot.kind)} window at ${hot.percentUsed}%`)
     }
     return next(e)
@@ -502,11 +511,12 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'org' }, async ($, e) => {
-    if (!active()) return { text: 'org-switch: this session was not started by claude-org; nothing to switch.' }
-    const cur = env.org as string
+    if (env.org === undefined) return { text: 'org-switch: this session was not started by claude-org; nothing to switch.' }
+    const cur = env.org
     const usage = `usage: /org [status] | /org switch [org]   (orgs: ${env.orgs.join(', ')})`
     const words = e.args.trim().split(/\s+/).filter(Boolean)
     if (words.length === 0 || (words[0] === 'status' && words.length === 1)) return { text: await report($) }
+    if (recordOnly() && words[0] === 'switch') return { text: RECORD_ONLY_SWITCH }
     if (words[0] !== 'switch' || words.length > 2) return { text: usage }
     let target = words[1]
     if (target !== undefined && (!env.orgs.includes(target) || target === cur)) return { text: usage }

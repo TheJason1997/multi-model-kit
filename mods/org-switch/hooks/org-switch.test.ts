@@ -1,7 +1,7 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { CODEX_READY_SH, codexText, decide, lowerEffort, unexplainedBlock } from './register.ts'
+import { CODEX_READY_SH, RECORD_ONLY_SWITCH, codexText, decide, lowerEffort, unexplainedBlock } from './register.ts'
 import type { OrgState, Situation } from './register.ts'
 
 const T0 = 1_700_000_000_000
@@ -581,4 +581,95 @@ test('downgraded to Opus: back on Fable the moment its hold ends, not 5 s later'
   expect(w.model).toBe('claude-opus-5-5')
   await clock.advance(30 * MIN)
   expect(w.model).toBe('claude-fable-5-2')
+})
+
+// ---- not started by the launcher, CLAUDE_ORG set (a T3 Code instance): record only ----
+
+const recordEnv = { CLAUDE_ORG: 'a', CLAUDE_ORGS: 'a,b' }
+const nothingDone = (w: World, store: Record<string, unknown>) => {
+  expect(w.writes).toEqual([])
+  expect(w.commands).toEqual([])
+  expect(w.runs).toEqual([])
+  expect(w.prompts).toEqual([])
+  expect(Object.keys(store).filter(k => k === 'lastSwitchAt' || k.startsWith('resume:') || k.startsWith('block:') || k === 'downgrade')).toEqual([])
+}
+
+for (const pct of [95, 100]) {
+  test(`record only: window at ${pct}% records the reading and does nothing else`, async ($, on) => {
+    mock.env(on, recordEnv)
+    const store = memStore(on)
+    const clock = mock.clock(on, { now: T0 })
+    const w = world(on, { run: ready(0) })
+    await start($)
+    await measure($, pct)
+    await clock.advance(10 * MIN)
+    nothingDone(w, store)
+    expect((store['ledger:a'] as { windows: Record<string, { percentUsed: number }> }).windows.five_hour?.percentUsed).toBe(pct)
+    expect(w.status).toBe(`a · 5h ${pct}% · 7d 50% · 省额度`)
+  })
+}
+
+test('record only: a turn ended by an error or a limit failure at 100% does nothing', async ($, on) => {
+  mock.env(on, recordEnv)
+  const store = memStore(on, allLimited(2 * HOUR))
+  const clock = mock.clock(on, { now: T0 })
+  const w = world(on, { model: 'claude-fable-5-2', run: ready(0) })
+  await start($)
+  await measure($, 100)
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'error' })
+  await rateLimited($)
+  await clock.advance(3 * HOUR)
+  nothingDone(w, store)
+  expect(w.model).toBe('claude-fable-5-2')
+  expect(store['ledger:a']).toBeDefined()
+})
+
+test('record only: a full window is on record from the start', async ($, on) => {
+  mock.env(on, recordEnv)
+  const store = memStore(on)
+  mock.clock(on, { now: T0 })
+  const w = world(on, { limits: [{ kind: 'seven_day', percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * HOUR) }] })
+  await start($)
+  expect(store['ledger:a']).toEqual({ seenAt: T0, windows: { seven_day: { percentUsed: 100, resetsAt: iso(T0 + 3 * 24 * HOUR) } } })
+  expect(store['saving:a']).toEqual({ since: T0, softAt: 80 })
+  expect(w.status).toBe('a · 7d 100% · 省额度')
+})
+
+test('record only: past the soft threshold, one level less effort', async ($, on) => {
+  mock.env(on, recordEnv)
+  const store = memStore(on)
+  mock.clock(on, { now: T0 })
+  const w = world(on)
+  await start($)
+  await measure($, 81)
+  await step($, 'high')
+  expect(w.efforts).toEqual(['medium'])
+  expect(store['saving:a']).toEqual({ since: T0, softAt: 80 })
+})
+
+test('record only: /org shows the status; /org switch says to change the thread\'s model instance', async ($, on) => {
+  mock.env(on, recordEnv)
+  const store = memStore(on)
+  const clock = mock.clock(on, { now: T0 })
+  const w = world(on)
+  await start($)
+  await measure($, 42)
+  expect((await org($, '')).text?.split('\n')[1]).toBe('a now: 5h 42% (resets in 1.0 h), 7d 50% (resets in 3 d)')
+  expect((await org($, 'switch')).text).toBe(RECORD_ONLY_SWITCH)
+  expect((await org($, 'switch b')).text).toBe(RECORD_ONLY_SWITCH)
+  await clock.advance(10 * MIN)
+  nothingDone(w, store)
+  expect(w.toasts).toEqual([])
+})
+
+test('no CLAUDE_ORG: nothing recorded', async ($, on) => {
+  mock.env(on, { CLAUDE_ORGS: 'a,b' })
+  const store = memStore(on)
+  mock.clock(on, { now: T0 })
+  const w = world(on, { limits: [{ kind: 'five_hour', percentUsed: 90, resetsAt: iso(T0 + HOUR) }] })
+  await start($)
+  await measure($, 96)
+  expect(store).toEqual({})
+  expect(w.status).toBe('')
+  expect((await org($, 'switch')).text).toBe('org-switch: this session was not started by claude-org; nothing to switch.')
 })

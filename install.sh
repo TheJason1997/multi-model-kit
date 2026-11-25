@@ -175,8 +175,48 @@ for_each_target() {
     with_target "$1" 'Gemini ' "$HOME/.gemini/GEMINI.md" "$HOME/.gemini/skills"
 }
 
+command_status() {
+    if [ -L "$command_link" ]; then
+        destination=$(readlink "$command_link") || return
+        case $destination in
+            /*) ;;
+            *) destination=$command_dir/$destination ;;
+        esac
+        if parent=$(CDPATH= cd -P "${destination%/*}/" 2>/dev/null && pwd) &&
+            [ "$parent/${destination##*/}" = "$command_source" ]; then
+            printf 'installed\n'
+        else
+            printf 'conflict\n'
+        fi
+    elif [ -e "$command_link" ] || ! can_create_in "$command_dir"; then
+        printf 'conflict\n'
+    else
+        printf 'missing\n'
+    fi
+}
+
+command_dir=$HOME/.local/bin
+command_link=$command_dir/quota-status
+command_source=$repo/bin/quota-status
+
 # Check every destination before writing to any of them.
 for_each_target inspect_target
-if ! "$check"; then
-    for_each_target install_target
+status=$(command_status)
+if "$check"; then
+    printf 'command quota-status: %s\n' "$status"
+    exit 0
 fi
+if [ "$status" = conflict ]; then
+    printf 'Cannot install command quota-status: %s or its parent is unavailable\n' "$command_link" >&2
+    exit 1
+fi
+
+for_each_target install_target
+if [ "$status" = missing ]; then
+    mkdir -p "$command_dir"
+    ln -s "$command_source" "$command_dir"
+fi
+case :${PATH-}: in
+    *":$command_dir:"*) ;;
+    *) printf 'Add ~/.local/bin to your PATH to run quota-status.\n' >&2 ;;
+esac

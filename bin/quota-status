@@ -4,37 +4,44 @@
 # last readings. Run it before each unit; while it says "省额度模式: 开", the
 # main session only dispatches and reviews.
 #
-# It reads the mod's store file under ~/.claude/plugins/store and nothing else
-# (no account state, no credential). The current org is $CLAUDE_ORG (set by
-# claude-org), else the org read most recently.
+# When the current org has a window at the hard threshold, a last line names
+# the org to move to (and its T3 Code instance, `t3Instance` in orgs.json).
+#
+# It reads the mod's store files under ~/.claude/plugins/store and orgs.json
+# beside the repository's bin/, and nothing else (no account state, no
+# credential). The current org is $CLAUDE_ORG (set by claude-org or the T3
+# instance), else the org read most recently.
 set -u
 
 store=$HOME/.claude/plugins/store
-exec python3 -I - "$store" "${CLAUDE_ORG-}" <<'PY'
+exec python3 -I - "$store" "${CLAUDE_ORG-}" "$0" <<'PY'
 import glob, json, os, re, sys, time
 from datetime import datetime
-store, org = sys.argv[1], sys.argv[2]
-# The newest store file that parses and holds a well-formed reading; any other is skipped.
-def mtime(p):
-    try:
-        return os.path.getmtime(p)
-    except OSError:
-        return 0
+store, org, me = sys.argv[1], sys.argv[2], sys.argv[3]
+THRESHOLD = 95  # the launcher's and the mod's
+# Every store file that parses (the mod's file name depends on how it was loaded). Readings are
+# checked one by one, so a bad entry never hides a good one beside it; per org, the newest reading
+# wins, with that file's saving mark, and the latest "every model held off" record is kept.
 def good(l):
     w = l.get('windows')
     return isinstance(w, dict) and isinstance(l.get('seenAt', 0), (int, float)) and all(isinstance(x, dict) and isinstance(x.get('percentUsed', 0), (int, float)) for x in w.values())
-ledgers, broken = {}, False
-for p in sorted(glob.glob(os.path.join(store, 'org-switch_*.json')), key=mtime, reverse=True):
+ledgers, savings, blocks, broken = {}, {}, {}, False
+for p in glob.glob(os.path.join(store, 'org-switch_*.json')):
     try:
         d = json.load(open(p))
     except (OSError, ValueError):
         broken = True
         continue
     ls = {k[7:]: v for k, v in d.items() if k.startswith('ledger:')} if isinstance(d, dict) else {}
-    if ls and all(isinstance(v, dict) and good(v) for v in ls.values()):
-        ledgers = ls
-        break
-    broken = broken or bool(ls)
+    for o, l in ls.items():
+        if not (isinstance(l, dict) and good(l)):
+            broken = True
+            continue
+        if o not in ledgers or l.get('seenAt', 0) > ledgers[o].get('seenAt', 0):
+            ledgers[o], savings[o] = l, bool(d.get('saving:' + o))
+    for k, b in (d.items() if isinstance(d, dict) else ()):
+        if k.startswith('block:') and isinstance(b, dict) and b.get('kind') == 'all' and isinstance(b.get('until'), (int, float)):
+            blocks[k[6:]] = max(blocks.get(k[6:], 0), b['until'])
 if not ledgers:
     print('读数文件读不出来（空文件或不是 JSON）' if broken else '还没有读数')
     sys.exit(0)
@@ -67,8 +74,46 @@ def seen(l):
 print('org: %s' % org)
 l = ledgers.get(org)
 print('%s: %s' % (org, windows(l) + '; ' + seen(l) if l else 'no reading'))
-print('省额度模式: %s' % ('开' if d.get('saving:' + org) else '关'))
+print('省额度模式: %s' % ('开' if savings.get(org) else '关'))
 for o in sorted(ledgers):
     if o != org:
         print('%s: %s; %s' % (o, windows(ledgers[o]), seen(ledgers[o])))
+
+def ts(s):
+    try:
+        return datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp() * 1000
+    except ValueError:
+        return None
+
+def free_at(o):
+    # Now, unless a window at the threshold has not reset yet (then its latest reset), or the org is
+    # held off. A full window that does not say when it resets is unknown: never free.
+    at = max(now, blocks.get(o, 0))
+    for w in (ledgers[o].get('windows') or {}).values():
+        if w.get('percentUsed', 0) < THRESHOLD:
+            continue
+        t = ts(w.get('resetsAt'))
+        if t is None:
+            return float('inf')
+        at = max(at, t)
+    return at
+
+def instance(o):
+    # orgs.json sits one level above the real bin/ (the script may be called through a link).
+    try:
+        cfg = json.load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(me))), 'orgs.json')))
+        i = next(x for x in cfg['orgs'] if isinstance(x, dict) and x.get('key') == o).get('t3Instance')
+    except Exception:
+        return None
+    return i if isinstance(i, str) and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', i) else None
+
+if l and free_at(org) > now:
+    others = sorted((free_at(o), -ledgers[o].get('seenAt', 0), o) for o in ledgers if o != org)
+    if others and others[0][0] <= now:
+        o = others[0][2]
+        i = instance(o)
+        print('建议换到: %s%s' % (o, '（T3 实例 %s）' % i if i else ''))
+    else:
+        first = min([free_at(org)] + [x[0] for x in others])
+        print('建议换到: 无（都受限，%s）' % ('恢复时间未知' if first == float('inf') else '最早 %s 后恢复' % span(first - now)))
 PY
